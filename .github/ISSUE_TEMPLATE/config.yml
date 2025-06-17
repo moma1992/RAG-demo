@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 プロジェクト仕様書
+    url: https://github.com/moma1992/RAG-demo/blob/main/CLAUDE.md
+    about: CLAUDE.mdで技術仕様とライブコーディング戦略を確認
+  - name: 🤖 Claude Code Action
+    url: https://github.com/anthropics/claude-code-action
+    about: Claude Code Actionの使用方法とベストプラクティス
