@@ -23,15 +23,19 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
+      actions: read
+      checks: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           
@@ -44,8 +48,8 @@ jobs:
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
           
-          # Optional: Allow Claude to run specific commands
-          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+          # Optional: Allow Claude to run specific commands for Python projects
+          allowed_tools: "Bash(python -m pytest),Bash(python -m pytest tests/),Bash(black .),Bash(flake8 .),Bash(mypy .)"
           
           # Custom instructions for RAG application development
           custom_instructions: |
@@ -70,6 +74,11 @@ jobs:
             
             ## ファイル構造
             CLAUDE.mdに記載されたアーキテクチャに従ってください
+            
+            ## PR作成について
+            - 実装完了後は必ずPull Requestを作成してください
+            - PRのタイトルにはIssue番号を含めてください（例: feat: CI/CDパイプライン実装 (#5)）
+            - PR説明にはIssueの要件との対応を明記してください
           
           # Optional: Custom environment variables for Claude
           # claude_env: |
