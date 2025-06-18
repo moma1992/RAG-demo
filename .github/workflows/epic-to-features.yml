@@ -1,0 +1,400 @@
+name: Epic to Feature Issues Generator
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  create-feature-issues:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.issue.state == 'open' && 
+      contains(github.event.comment.body, '@claude create features from epic')
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Get Epic Issue Details
+      id: epic-details
+      run: |
+        # Epic Issue の情報を取得
+        echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+        echo "issue_title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
+        
+        # Epic内容をファイルに保存
+        cat > epic_content.txt << 'EOF'
+        ${{ github.event.issue.body }}
+        EOF
+
+    - name: Parse Epic and Create Features
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        EPIC_NUMBER: ${{ steps.epic-details.outputs.issue_number }}
+        EPIC_TITLE: ${{ steps.epic-details.outputs.issue_title }}
+      run: |
+        # Epic Issue #2 の場合のFeature Issue定義
+        if [ "$EPIC_NUMBER" = "2" ]; then
+          echo "Creating Feature Issues for CI/CD Epic..."
+          
+          # Feature 1: CI/CDパイプライン設定
+          gh issue create \
+            --title "[FEAT] CI/CDパイプライン設定" \
+            --body "$(cat << 'EOF'
+        ## 🎯 背景・目的
+        RAGアプリケーション開発のためのGitHub Actions CI/CDパイプラインを設定し、自動化されたテスト・品質チェック・デプロイメント環境を構築する。
+        
+        ## 📋 要件
+        ### 機能要件
+        - [ ] GitHub Actions ワークフロー設定 (.github/workflows/ci.yml)
+        - [ ] Python 3.11環境でのテスト実行
+        - [ ] 複数ジョブでの並列処理 (test, security, quality)
+        - [ ] プルリクエスト・プッシュ時の自動実行
+        - [ ] テスト結果の可視化
+        
+        ### 非機能要件
+        - [ ] 実行時間5分以内での完了
+        - [ ] キャッシュ機能による高速化
+        - [ ] セキュリティスキャンの統合
+        - [ ] カバレッジレポート生成
+        
+        ## 🏗️ 技術仕様
+        - **使用技術**: GitHub Actions, pytest, flake8, black, mypy, bandit
+        - **トリガー**: push (main, develop), pull_request (main)
+        - **Python版**: 3.11.x (Streamlit Cloud Community対応)
+        
+        ```yaml
+        # 想定する実装構造
+        name: CI/CD Pipeline
+        on:
+          push:
+            branches: [ main, develop ]
+          pull_request:
+            branches: [ main ]
+        jobs:
+          test:
+            # テスト実行ジョブ
+          security:
+            # セキュリティスキャンジョブ
+        ```
+        
+        ## 🎪 成功基準
+        - [ ] CI/CDパイプラインが正常動作
+        - [ ] 全品質チェックがPass
+        - [ ] テストカバレッジレポート生成
+        - [ ] PRマージ前の自動チェック機能
+        
+        ## 🧪 テストケース
+        ### 正常系
+        - [ ] 正常なコードでのCI実行成功
+        - [ ] キャッシュ機能の動作確認
+        - [ ] 並列実行の確認
+        
+        ### 異常系
+        - [ ] テスト失敗時のワークフロー停止
+        - [ ] セキュリティ問題検出時の処理
+        - [ ] 品質チェック失敗時の処理
+        
+        ## 🔗 関連Issue
+        - Part of Epic: #2 - CI/CD環境とプロジェクト基盤整備
+        
+        ---
+        **Claude Code Action使用**: ✅ TDDサイクルでライブコーディング実装
+        EOF
+        )" \
+            --label "feature"
+          
+          # Feature 2: プロジェクト基本構造構築
+          gh issue create \
+            --title "[FEAT] プロジェクト基本構造構築" \
+            --body "$(cat << 'EOF'
+        ## 🎯 背景・目的
+        RAGアプリケーションの基本ディレクトリ構造を構築し、Streamlit Cloud Community対応の設定ファイルを整備する。
+        
+        ## 📋 要件
+        ### 機能要件
+        - [ ] アプリケーションディレクトリ構造作成
+        - [ ] 設定ファイル群の配置 (pyproject.toml, .env.example等)
+        - [ ] テストディレクトリ構造整備
+        - [ ] ドキュメント基盤構築
+        - [ ] Streamlit設定ファイル作成
+        
+        ### 非機能要件
+        - [ ] 拡張性を考慮した構造設計
+        - [ ] チーム開発に適した整理
+        - [ ] Streamlit Cloud Community制約対応
+        
+        ## 🏗️ 技術仕様
+        ```
+        # 構築予定ディレクトリ構造
+        RAG-demo/
+        ├── streamlit_app.py
+        ├── components/
+        ├── services/
+        ├── utils/
+        ├── models/
+        ├── tests/
+        ├── docs/
+        ├── .streamlit/
+        └── 設定ファイル群
+        ```
+        
+        ## 🎪 成功基準
+        - [ ] 完全なディレクトリ構造作成
+        - [ ] 設定ファイル動作確認
+        - [ ] Streamlit起動確認
+        - [ ] 開発環境セットアップ確認
+        
+        ## 🧪 テストケース
+        ### 正常系
+        - [ ] ディレクトリ構造の確認
+        - [ ] 設定ファイル読み込み確認
+        - [ ] 基本的なimport確認
+        
+        ## 🔗 関連Issue
+        - Part of Epic: #2 - CI/CD環境とプロジェクト基盤整備
+        
+        ---
+        **Claude Code Action使用**: ✅ ライブコーディング実装
+        EOF
+        )" \
+            --label "feature"
+          
+          # Feature 3: 依存関係とコード品質設定
+          gh issue create \
+            --title "[FEAT] 依存関係とコード品質設定" \
+            --body "$(cat << 'EOF'
+        ## 🎯 背景・目的
+        プロジェクトの依存関係管理とコード品質保証ツールを設定し、一貫した開発標準を確立する。
+        
+        ## 📋 要件
+        ### 機能要件
+        - [ ] requirements.txt (本番依存関係)
+        - [ ] requirements-dev.txt (開発依存関係)
+        - [ ] pyproject.toml設定
+        - [ ] コード品質ツール設定 (Black, Flake8, mypy)
+        - [ ] Pre-commit hooks設定
+        
+        ### 非機能要件
+        - [ ] 依存関係の最小化
+        - [ ] バージョン固定による安定性
+        - [ ] Streamlit Cloud Community対応
+        
+        ## 🏗️ 技術仕様
+        ```python
+        # requirements.txt (主要依存関係)
+        streamlit>=1.28.0
+        langchain>=0.1.0
+        supabase>=2.0.0
+        pymupdf>=1.23.0
+        # 他のライブラリ
+        ```
+        
+        ## 🎪 成功基準
+        - [ ] 依存関係インストール成功
+        - [ ] コード品質チェック動作
+        - [ ] Pre-commit hooks機能確認
+        - [ ] CI/CD統合確認
+        
+        ## 🧪 テストケース
+        ### 正常系
+        - [ ] 依存関係解決確認
+        - [ ] 品質チェック実行確認
+        - [ ] Pre-commit動作確認
+        
+        ## 🔗 関連Issue
+        - Part of Epic: #2 - CI/CD環境とプロジェクト基盤整備
+        
+        ---
+        **Claude Code Action使用**: ✅ ライブコーディング実装
+        EOF
+        )" \
+            --label "feature"
+          
+          # Feature 4: テストフレームワーク設定
+          gh issue create \
+            --title "[FEAT] テストフレームワーク設定" \
+            --body "$(cat << 'EOF'
+        ## 🎯 背景・目的
+        pytestベースのテストフレームワークを設定し、TDD開発とカバレッジ測定環境を構築する。
+        
+        ## 📋 要件
+        ### 機能要件
+        - [ ] pytest設定 (pytest.ini)
+        - [ ] テストディレクトリ構造構築
+        - [ ] カバレッジ測定設定
+        - [ ] テストデータ・フィクスチャ準備
+        - [ ] 並列テスト実行設定
+        
+        ### 非機能要件
+        - [ ] テスト実行速度最適化
+        - [ ] カバレッジ80%以上目標
+        - [ ] CI/CD統合対応
+        
+        ## 🏗️ 技術仕様
+        ```python
+        # conftest.py設定
+        import pytest
+        
+        @pytest.fixture
+        def test_config():
+            # テスト用設定
+            pass
+        ```
+        
+        ## 🎪 成功基準
+        - [ ] pytest正常実行
+        - [ ] カバレッジレポート生成
+        - [ ] テストフィクスチャ動作
+        - [ ] CI/CD統合確認
+        
+        ## 🧪 テストケース
+        ### 正常系
+        - [ ] 基本テスト実行確認
+        - [ ] カバレッジ測定確認
+        - [ ] フィクスチャ動作確認
+        
+        ## 🔗 関連Issue
+        - Part of Epic: #2 - CI/CD環境とプロジェクト基盤整備
+        
+        ---
+        **Claude Code Action使用**: ✅ TDDライブコーディング実装
+        EOF
+        )" \
+            --label "feature"
+          
+          # Feature 5: 外部サービスモック環境構築
+          gh issue create \
+            --title "[FEAT] 外部サービスモック環境構築" \
+            --body "$(cat << 'EOF'
+        ## 🎯 背景・目的
+        OpenAI、Claude、Supabase APIの呼び出しをモック化し、テスト環境での安定した動作とコスト削減を実現する。
+        
+        ## 📋 要件
+        ### 機能要件
+        - [ ] OpenAI API モック (Embeddings, Chat)
+        - [ ] Claude API モック (Messages)
+        - [ ] Supabase クライアント モック
+        - [ ] 環境変数モック設定
+        - [ ] レスポンスデータ準備
+        
+        ### 非機能要件
+        - [ ] テスト実行時間短縮
+        - [ ] 外部依存関係の排除
+        - [ ] 一貫したテストデータ
+        
+        ## 🏗️ 技術仕様
+        ```python
+        # 想定するモック実装
+        @pytest.fixture
+        def mock_openai_client():
+            with patch('openai.OpenAI') as mock:
+                mock.return_value.embeddings.create.return_value.data = [
+                    Mock(embedding=[0.1] * 1536)
+                ]
+                yield mock
+        ```
+        
+        ## 🎪 成功基準
+        - [ ] 全外部APIモック化完了
+        - [ ] モック環境でのテスト実行成功
+        - [ ] レスポンスデータ適切性確認
+        - [ ] テスト高速化確認
+        
+        ## 🧪 テストケース
+        ### 正常系
+        - [ ] OpenAI モック動作確認
+        - [ ] Claude モック動作確認
+        - [ ] Supabase モック動作確認
+        
+        ### 異常系
+        - [ ] API エラーレスポンス処理
+        - [ ] タイムアウト処理
+        - [ ] 認証エラー処理
+        
+        ## 🔗 関連Issue
+        - Part of Epic: #2 - CI/CD環境とプロジェクト基盤整備
+        
+        ---
+        **Claude Code Action使用**: ✅ モックTDDライブコーディング実装
+        EOF
+        )" \
+            --label "feature"
+        
+        elif [ "$EPIC_NUMBER" = "3" ]; then
+          echo "Creating Feature Issues for RAG Implementation Epic..."
+          
+          # RAG Epic用のFeature Issues (Phase別)
+          # Phase 1: 基盤機能
+          gh issue create \
+            --title "[FEAT] PDF処理システム実装" \
+            --body "$(cat << 'EOF'
+        ## 🎯 背景・目的
+        日本語PDF文書からテキストを抽出し、メタデータ（ページ番号、座標情報）と共に構造化データに変換するシステムを実装する。
+        
+        ## 📋 要件
+        ### 機能要件
+        - [ ] PyMuPDF使用によるPDF読み込み
+        - [ ] 日本語テキスト正確抽出
+        - [ ] ページ番号・座標情報取得
+        - [ ] 図表・レイアウト情報保持
+        - [ ] ファイルサイズ制限チェック
+        
+        ### 非機能要件
+        - [ ] 大容量PDF対応 (Streamlit制限内)
+        - [ ] メモリ効率的な処理
+        - [ ] エラーハンドリング (日本語)
+        
+        ## 🏗️ 技術仕様
+        ```python
+        # 実装予定インターフェース
+        class PDFProcessor:
+            def extract_text_with_metadata(self, pdf_path: Path) -> List[PDFPage]:
+                \"\"\"PDF から構造化テキストを抽出\"\"\"
+                pass
+        ```
+        
+        ## 🔗 関連Issue
+        - Part of Epic: #3 - RAGアプリケーション実装
+        
+        ---
+        **Claude Code Action使用**: ✅ TDDライブコーディング実装
+        EOF
+        )" \
+            --label "feature"
+        
+        else
+          echo "Unknown Epic number: $EPIC_NUMBER"
+        fi
+
+    - name: Comment on Epic Issue
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh issue comment ${{ github.event.issue.number }} \
+          --body "✅ **Feature Issues作成完了**
+
+        Epic #${{ github.event.issue.number }} から以下のFeature Issueを自動作成しました：
+        
+        📋 **作成されたIssues:**
+        - 詳細は上記で作成された各Issueをご確認ください
+        - 各IssueはClaude Code Actionでのライブコーディング実装に対応
+        - TDDサイクルでの開発を前提とした構成
+        
+        🚀 **次のステップ:**
+        1. 各Feature Issueの内容確認・調整
+        2. 開発優先順位の決定
+        3. Claude Code Actionでの実装開始
+        
+        ---
+        🤖 *このコメントは GitHub Actions で自動生成されました*"
