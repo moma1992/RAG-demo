@@ -26,6 +26,18 @@ jobs:
         echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
         echo "issue_title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
 
+    - name: Ensure Feature Label Exists
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # feature ラベルが存在しない場合は作成
+        if ! gh label list | grep -q "^feature"; then
+          echo "Creating 'feature' label..."
+          gh label create feature --description "New feature implementation" --color "28a745" || true
+        else
+          echo "Feature label already exists"
+        fi
+
     - name: Create Feature Issues
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -44,7 +56,7 @@ jobs:
           ISSUE1_URL=$(gh issue create \
             --title "[FEAT] CI/CDパイプライン設定" \
             --body-file .github/issue-templates/ci-cd-pipeline.md \
-            --label feature || echo "Failed to create CI/CD issue")
+            --label "feature")
           CREATED_ISSUES+=("$ISSUE1_URL")
           
           # Feature 2: プロジェクト基本構造構築
@@ -52,7 +64,7 @@ jobs:
           ISSUE2_URL=$(gh issue create \
             --title "[FEAT] プロジェクト基本構造構築" \
             --body-file .github/issue-templates/project-structure.md \
-            --label feature || echo "Failed to create project structure issue")
+            --label "feature")
           CREATED_ISSUES+=("$ISSUE2_URL")
           
           # Feature 3: 依存関係とコード品質設定
@@ -60,7 +72,7 @@ jobs:
           ISSUE3_URL=$(gh issue create \
             --title "[FEAT] 依存関係とコード品質設定" \
             --body-file .github/issue-templates/dependencies-quality.md \
-            --label feature || echo "Failed to create dependencies issue")
+            --label "feature")
           CREATED_ISSUES+=("$ISSUE3_URL")
           
           # Feature 4: テストフレームワーク設定
@@ -68,7 +80,7 @@ jobs:
           ISSUE4_URL=$(gh issue create \
             --title "[FEAT] テストフレームワーク設定" \
             --body-file .github/issue-templates/test-framework.md \
-            --label feature || echo "Failed to create test framework issue")
+            --label "feature")
           CREATED_ISSUES+=("$ISSUE4_URL")
           
           # Feature 5: 外部サービスモック環境構築
@@ -76,7 +88,7 @@ jobs:
           ISSUE5_URL=$(gh issue create \
             --title "[FEAT] 外部サービスモック環境構築" \
             --body-file .github/issue-templates/mock-environment.md \
-            --label feature || echo "Failed to create mock environment issue")
+            --label "feature")
           CREATED_ISSUES+=("$ISSUE5_URL")
           
           echo "✅ Created ${#CREATED_ISSUES[@]} Feature Issues"
