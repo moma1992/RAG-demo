@@ -29,27 +29,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@v0.0.21
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
+          # Use Claude Sonnet 4 (default, but explicit)
+          model: "claude-sonnet-4-20250514"
           
-          # Optional: Customize the trigger phrase (default: @claude)
-          # trigger_phrase: "/claude"
+          # Customize the trigger phrase (default: @claude)
+          trigger_phrase: "@claude"
           
-          # Optional: Trigger when specific user is assigned to an issue
-          # assignee_trigger: "claude-bot"
-          
-          # Optional: Allow Claude to run specific commands for Python projects
-          allowed_tools: "Bash(python -m pytest),Bash(python -m pytest tests/),Bash(black .),Bash(flake8 .),Bash(mypy .)"
+          # Allow Claude to run specific commands for Python projects
+          allowed_tools: |
+            Bash(python -m pytest)
+            Bash(python -m pytest tests/)
+            Bash(black .)
+            Bash(flake8 .)
+            Bash(mypy .)
+            Bash(pip install -r requirements.txt)
+            Bash(pip install -r requirements-dev.txt)
           
           # Custom instructions for RAG application development
           custom_instructions: |
