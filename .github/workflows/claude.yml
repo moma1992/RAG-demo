@@ -60,6 +60,7 @@ jobs:
             mcp__github__get_file
             mcp__github__search_repositories
             mcp__github__create_or_update_file_contents
+            mcp__github__create_issue
           
           # Custom instructions for RAG application development
           custom_instructions: |
