@@ -1,0 +1,37 @@
+# Streamlit Cloud Community対応 requirements.txt
+
+# Streamlit Framework
+streamlit>=1.28.0
+
+# AI/ML Libraries  
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-anthropic>=0.1.0
+openai>=1.0.0
+anthropic>=0.8.0
+
+# Database & Vector Store
+supabase>=2.0.0
+
+# PDF Processing
+pymupdf>=1.23.0
+
+# Japanese NLP
+spacy>=3.7.0
+
+# Web Framework Dependencies
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Environment Management
+python-dotenv>=1.0.0
+
+# Logging & Monitoring
+loguru>=0.7.0
+
+# Type Hints & Development
+typing-extensions>=4.8.0
