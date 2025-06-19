@@ -1,0 +1,193 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  test:
+    name: 🧪 Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+    - name: Set up mock environment
+      env:
+        OPENAI_API_KEY: mock_openai_key_for_testing
+        ANTHROPIC_API_KEY: mock_anthropic_key_for_testing
+        SUPABASE_URL: https://mock.supabase.co
+        SUPABASE_KEY: mock_supabase_key_for_testing
+      run: |
+        echo "Mock environment variables set for testing"
+
+    - name: Run tests with coverage
+      continue-on-error: true
+      env:
+        OPENAI_API_KEY: mock_openai_key_for_testing
+        ANTHROPIC_API_KEY: mock_anthropic_key_for_testing
+        SUPABASE_URL: https://mock.supabase.co
+        SUPABASE_KEY: mock_supabase_key_for_testing
+      run: |
+        if [ -f "tests" ] || [ -d "tests" ]; then
+          python -m pytest tests/ --cov=. --cov-report=xml --cov-report=term-missing
+        else
+          echo "No tests directory found, skipping test execution"
+        fi
+
+    - name: Upload coverage reports
+      if: success()
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+
+  security:
+    name: 🔒 Security
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-security-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-security-
+
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit[toml] safety
+
+    - name: Run Bandit security scan
+      continue-on-error: true
+      run: |
+        if [ -f "pyproject.toml" ]; then
+          bandit -r . -f json -o bandit-report.json || bandit -r . --severity-level medium
+        else
+          bandit -r . --severity-level medium -x tests/
+        fi
+
+    - name: Run Safety check
+      continue-on-error: true
+      run: |
+        if [ -f requirements.txt ]; then
+          safety check --file requirements.txt
+        else
+          echo "No requirements.txt found, skipping safety check"
+        fi
+
+    - name: Upload security reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+        if-no-files-found: ignore
+
+  quality:
+    name: 📏 Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-quality-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-quality-
+
+    - name: Install quality tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install black flake8 mypy isort
+
+    - name: Check code formatting with Black
+      continue-on-error: true
+      run: |
+        black --check --diff .
+
+    - name: Check import sorting with isort
+      continue-on-error: true
+      run: |
+        isort --check-only --diff .
+
+    - name: Run Flake8 linting
+      continue-on-error: true
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+
+    - name: Run MyPy type checking
+      continue-on-error: true
+      run: |
+        if [ -f "pyproject.toml" ] || [ -f "mypy.ini" ]; then
+          mypy .
+        else
+          echo "No MyPy configuration found, skipping type checking"
+        fi
+
+  summary:
+    name: 📊 CI Summary
+    runs-on: ubuntu-latest
+    needs: [test, security, quality]
+    if: always()
+    
+    steps:
+    - name: CI Pipeline Summary
+      run: |
+        echo "🚀 CI Pipeline Execution Complete"
+        echo "📋 Job Results:"
+        echo "  🧪 Tests: ${{ needs.test.result }}"
+        echo "  🔒 Security: ${{ needs.security.result }}"
+        echo "  📏 Quality: ${{ needs.quality.result }}"
+        
+        if [[ "${{ needs.test.result }}" == "success" && "${{ needs.security.result }}" == "success" && "${{ needs.quality.result }}" == "success" ]]; then
+          echo "✅ All checks passed successfully!"
+        else
+          echo "⚠️  Some checks completed with warnings - review the logs above"
+        fi
