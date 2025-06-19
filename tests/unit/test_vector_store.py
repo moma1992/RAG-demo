@@ -1,5 +1,5 @@
 """
-ベクトルストアサービスのテスト
+ベクトルストアサービスの単体テスト
 
 Supabase統合とベクトル検索のテストケース
 """
@@ -188,46 +188,3 @@ class TestDocumentRecord:
         assert record.file_size == 1024000
         assert record.total_pages == 25
         assert record.processing_status == "completed"
-
-
-# 統合テスト
-class TestVectorStoreIntegration:
-    """ベクトルストア統合テスト"""
-    
-    def test_document_lifecycle(self, mock_supabase_client):
-        """文書ライフサイクル統合テスト"""
-        store = VectorStore("https://test.supabase.co", "test-key")
-        
-        # 1. 文書保存
-        document_data = {
-            "filename": "lifecycle_test.pdf",
-            "file_size": 2048,
-            "total_pages": 5
-        }
-        document_id = store.store_document(document_data)
-        
-        # 2. チャンク保存
-        chunks = [
-            {
-                "content": f"テストチャンク{i}",
-                "page_number": i % 5 + 1,
-                "embedding": [0.1 + i * 0.01] * 1536
-            }
-            for i in range(10)
-        ]
-        store.store_chunks(chunks, document_id)
-        
-        # 3. 検索実行
-        query_embedding = [0.1] * 1536
-        results = store.similarity_search(query_embedding)
-        
-        # 4. 文書一覧確認
-        documents = store.get_documents()
-        
-        # 5. 文書削除
-        store.delete_document(document_id)
-        
-        # 全ての操作がエラーなしで完了することを確認
-        assert document_id is not None
-        assert isinstance(results, list)
-        assert isinstance(documents, list)

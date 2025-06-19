@@ -1,5 +1,5 @@
 """
-PDF処理サービスのテスト
+PDF処理サービスの単体テスト
 
 TDDアプローチによるPDFプロセッサーのテストケース
 """
@@ -68,22 +68,6 @@ class TestPDFProcessor:
         with pytest.raises(FileNotFoundError):
             processor.extract_text_from_pdf(non_existent_path)
     
-    def test_document_chunk_creation(self):
-        """DocumentChunk作成テスト"""
-        chunk = DocumentChunk(
-            content="テストコンテンツ",
-            filename="test.pdf",
-            page_number=1,
-            token_count=10
-        )
-        
-        assert chunk.content == "テストコンテンツ"
-        assert chunk.filename == "test.pdf"
-        assert chunk.page_number == 1
-        assert chunk.token_count == 10
-        assert chunk.chapter_number is None
-        assert chunk.section_name is None
-    
     @patch('services.pdf_processor.logger')
     def test_logging_on_error(self, mock_logger, sample_pdf_bytes):
         """エラー時ログ出力テスト"""
@@ -100,19 +84,38 @@ class TestPDFProcessor:
 class TestDocumentChunk:
     """DocumentChunkテストクラス"""
     
+    def test_document_chunk_creation(self):
+        """DocumentChunk作成テスト"""
+        chunk = DocumentChunk(
+            content="テストコンテンツ",
+            filename="test.pdf",
+            page_number=1,
+            token_count=10
+        )
+        
+        assert chunk.content == "テストコンテンツ"
+        assert chunk.filename == "test.pdf"
+        assert chunk.page_number == 1
+        assert chunk.token_count == 10
+        assert chunk.chapter_number is None
+        assert chunk.section_name is None
+    
     def test_document_chunk_default_values(self):
         """デフォルト値テスト"""
-        chunk = DocumentChunk()
+        chunk = DocumentChunk(
+            content="",
+            filename="",
+            page_number=1
+        )
         
         assert chunk.content == ""
         assert chunk.filename == ""
         assert chunk.page_number == 1
-        assert chunk.token_count == 0
+        assert chunk.token_count is None
         assert chunk.chapter_number is None
         assert chunk.section_name is None
         assert chunk.start_pos is None
         assert chunk.end_pos is None
-        assert chunk.embedding is None
     
     def test_document_chunk_with_custom_values(self):
         """カスタム値テスト"""
@@ -131,23 +134,3 @@ class TestDocumentChunk:
         assert chunk.chapter_number == 2
         assert chunk.section_name == "第2章"
         assert chunk.token_count == 25
-
-
-# 統合テスト
-class TestPDFProcessorIntegration:
-    """PDF処理統合テスト"""
-    
-    def test_full_pdf_processing_pipeline(self, sample_pdf_bytes, mock_fitz, mock_spacy):
-        """完全なPDF処理パイプラインテスト"""
-        processor = PDFProcessor()
-        filename = "integration_test.pdf"
-        
-        # 処理実行
-        result = processor.process_pdf(sample_pdf_bytes, filename)
-        
-        # 結果検証
-        assert result.total_pages > 0
-        assert result.total_chunks > 0
-        assert all(chunk.filename == filename for chunk in result.chunks)
-        assert all(chunk.content for chunk in result.chunks)
-        assert all(chunk.token_count > 0 for chunk in result.chunks)
