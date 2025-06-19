@@ -8,20 +8,9 @@ from typing import List, Dict, Any, Optional, Tuple
 import logging
 from pathlib import Path
 from dataclasses import dataclass
+from models.document import DocumentChunk, ChunkPosition
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class DocumentChunk:
-    """文書チャンクデータクラス"""
-    content: str
-    filename: str
-    page_number: int
-    chapter_number: Optional[int] = None
-    section_name: Optional[str] = None
-    start_pos: Optional[Dict[str, float]] = None
-    end_pos: Optional[Dict[str, float]] = None
-    token_count: Optional[int] = None
 
 @dataclass
 class ProcessingResult:
