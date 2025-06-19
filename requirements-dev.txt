@@ -43,3 +43,19 @@ types-urllib3>=1.26.0
 # Test Data Generation
 faker>=19.6.0
 factory-boy>=3.3.0
+
+# Additional Code Quality Tools
+flake8-docstrings>=1.7.0
+flake8-import-order>=0.18.2
+flake8-bugbear>=23.7.10
+flake8-comprehensions>=3.14.0
+flake8-simplify>=0.20.0
+docformatter>=1.7.5
+
+# Development Utilities
+tox>=4.11.0
+pipdeptree>=2.13.0
+pip-tools>=7.3.0
+
+# Environment Management
+python-decouple>=3.8

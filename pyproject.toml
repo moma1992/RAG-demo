@@ -35,11 +35,17 @@ dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
+    "pytest-asyncio>=0.21.0",
     "black>=23.7.0",
     "flake8>=6.0.0",
+    "flake8-docstrings>=1.7.0",
+    "flake8-import-order>=0.18.2",
+    "flake8-bugbear>=23.7.10",
     "mypy>=1.5.0",
     "isort>=5.12.0",
     "bandit>=1.7.5",
+    "pre-commit>=3.4.0",
+    "safety>=2.3.0",
 ]
 
 [tool.black]
@@ -144,3 +150,33 @@ exclude_lines = [
 [tool.bandit]
 skips = ["B101", "B601"]  # Skip assert_used and shell_injection_process for tests
 exclude_dirs = ["tests"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503", "E501"]
+max-complexity = 10
+select = ["C", "E", "F", "W", "B", "B950"]
+ignore = [
+    "E203",  # whitespace before ':'
+    "E501",  # line too long (handled by black)
+    "W503",  # line break before binary operator
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"  # docstring requirements
+]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".eggs",
+    "*.egg",
+    "build",
+    "dist",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "docs"
+]
+per-file-ignores = [
+    "__init__.py:F401",  # Allow unused imports in __init__ files
+    "tests/*:D100,D101,D102,D103,D104"  # Relax docstring requirements for tests
+]
