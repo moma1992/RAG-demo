@@ -106,6 +106,21 @@ def sample_pdf_bytes():
     # 最小限のPDFヘッダー（実際のPDF処理テストには適さないが、ファイル形式テストには使用可能）
     return b"%PDF-1.4\n%Test PDF content\n%%EOF"
 
+@pytest.fixture
+def sample_pdf_file():
+    """サンプルPDFファイルパス"""
+    return Path(__file__).parent / "fixtures" / "sample.pdf"
+
+@pytest.fixture
+def multi_page_pdf_file():
+    """複数ページPDFファイルパス"""
+    return Path(__file__).parent / "fixtures" / "multi_page.pdf"
+
+@pytest.fixture
+def corrupt_pdf_file():
+    """破損PDFファイルパス"""
+    return Path(__file__).parent / "fixtures" / "corrupt.pdf"
+
 # テスト用一時ディレクトリ
 @pytest.fixture
 def temp_dir():
