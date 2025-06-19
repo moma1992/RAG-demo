@@ -35,7 +35,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v0.0.21
+        uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           
@@ -45,7 +45,7 @@ jobs:
           # Customize the trigger phrase (default: @claude)
           trigger_phrase: "@claude"
           
-          # Allow Claude to run specific commands for Python projects
+          # Allow Claude to run specific commands for Python projects and GitHub operations
           allowed_tools: |
             Bash(python -m pytest)
             Bash(python -m pytest tests/)
@@ -54,6 +54,12 @@ jobs:
             Bash(mypy .)
             Bash(pip install -r requirements.txt)
             Bash(pip install -r requirements-dev.txt)
+            mcp__github__create_pull_request
+            mcp__github__create_branch
+            mcp__github__push_files
+            mcp__github__get_file
+            mcp__github__search_repositories
+            mcp__github__create_or_update_file_contents
           
           # Custom instructions for RAG application development
           custom_instructions: |
@@ -80,9 +86,11 @@ jobs:
             CLAUDE.mdに記載されたアーキテクチャに従ってください
             
             ## PR作成について
-            - 実装完了後は必ずPull Requestを作成してください
+            - 実装完了後は mcp__github__create_pull_request ツールを使用してPull Requestを作成してください
             - PRのタイトルにはIssue番号を含めてください（例: feat: CI/CDパイプライン実装 (#5)）
             - PR説明にはIssueの要件との対応を明記してください
+            - ブランチ作成には mcp__github__create_branch ツールを使用してください
+            - ファイル作成・更新には mcp__github__create_or_update_file_contents を使用してください
           
           # Optional: Custom environment variables for Claude
           # claude_env: |
