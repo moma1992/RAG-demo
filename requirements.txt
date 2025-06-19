@@ -35,3 +35,10 @@ loguru>=0.7.0
 
 # Type Hints & Development
 typing-extensions>=4.8.0
+
+# Performance & Optimization
+psutil>=5.9.0
+
+# Additional Web Framework Dependencies
+certifi>=2023.7.22
+charset-normalizer>=3.2.0

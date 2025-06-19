@@ -1,0 +1,159 @@
+# Pre-commit Configuration for RAG Demo Project
+# 新入社員向け社内文書検索RAGアプリケーション用設定
+
+repos:
+  # General Pre-commit Hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trailing Whitespace Check
+        description: 行末の空白を削除
+      - id: end-of-file-fixer
+        name: End of File Fixer
+        description: ファイル末尾の改行を修正
+      - id: check-yaml
+        name: YAML Syntax Check
+        description: YAMLファイルの構文チェック
+      - id: check-toml
+        name: TOML Syntax Check
+        description: TOMLファイルの構文チェック
+      - id: check-json
+        name: JSON Syntax Check
+        description: JSONファイルの構文チェック
+      - id: check-merge-conflict
+        name: Merge Conflict Check
+        description: マージコンフリクトマーカーの検出
+      - id: check-added-large-files
+        name: Large Files Check
+        description: 大きなファイルの追加を防止
+        args: ['--maxkb=1000']
+      - id: mixed-line-ending
+        name: Line Ending Check
+        description: 行末文字の統一
+        args: ['--fix=lf']
+
+  # Python Code Formatting
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        name: Black Code Formatter
+        description: Pythonコードの自動フォーマット
+        language_version: python3.11
+        args: [--line-length=88]
+
+  # Import Sorting
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: isort Import Sorter
+        description: Pythonインポートの並び替え
+        args: [--profile=black, --line-length=88]
+
+  # Code Linting
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        name: Flake8 Linter
+        description: Pythonコードの品質チェック
+        additional_dependencies: [
+          flake8-docstrings,
+          flake8-import-order,
+          flake8-bugbear,
+          flake8-comprehensions,
+          flake8-simplify,
+        ]
+        args: [
+          --max-line-length=88,
+          --extend-ignore=E203,W503,E501,
+          --max-complexity=10,
+          --select=C,E,F,W,B,B950,
+          --ignore=E203,E501,W503,D100,D101,D102,D103,D104,D105,D106,D107
+        ]
+
+  # Type Checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        name: MyPy Type Checker
+        description: Python型チェック
+        language_version: python3.11
+        additional_dependencies: [
+          types-requests,
+          types-urllib3,
+        ]
+        args: [
+          --ignore-missing-imports,
+          --follow-imports=silent,
+          --warn-redundant-casts,
+          --warn-unused-ignores,
+          --disallow-any-generics,
+          --check-untyped-defs,
+          --no-implicit-reexport,
+          --warn-unused-configs,
+          --disallow-subclassing-any,
+          --disallow-incomplete-defs,
+          --disallow-untyped-decorators,
+          --disallow-untyped-calls,
+          --disallow-untyped-defs,
+        ]
+
+  # Security Scanning
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        name: Bandit Security Linter
+        description: Pythonセキュリティ脆弱性スキャン
+        args: [
+          -r,
+          -x, tests/,
+          -ll,
+          --skip, B101,B601,
+        ]
+
+  # Docstring Formatting
+  - repo: https://github.com/pycqa/docformatter
+    rev: v1.7.5
+    hooks:
+      - id: docformatter
+        name: Docstring Formatter
+        description: Pythonドックストリングのフォーマット
+        args: [
+          --in-place,
+          --wrap-summaries=88,
+          --wrap-descriptions=88,
+          --make-summary-multi-line,
+          --close-quotes-on-newline,
+        ]
+
+  # Requirements.txt Sorting
+  - repo: https://github.com/asottile/reorder_python_imports
+    rev: v3.12.0
+    hooks:
+      - id: reorder-python-imports
+        name: Reorder Python Imports
+        description: Pythonインポートの並び替え（詳細版）
+        args: [--py311-plus]
+
+# Configuration
+default_stages: [commit, push]
+default_language_version:
+  python: python3.11
+
+# Pre-commit CI Configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
