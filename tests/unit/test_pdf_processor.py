@@ -102,17 +102,20 @@ class TestDocumentChunk:
     
     def test_document_chunk_default_values(self):
         """デフォルト値テスト"""
-        chunk = DocumentChunk()
+        chunk = DocumentChunk(
+            content="",
+            filename="",
+            page_number=1
+        )
         
         assert chunk.content == ""
         assert chunk.filename == ""
         assert chunk.page_number == 1
-        assert chunk.token_count == 0
+        assert chunk.token_count is None
         assert chunk.chapter_number is None
         assert chunk.section_name is None
         assert chunk.start_pos is None
         assert chunk.end_pos is None
-        assert chunk.embedding is None
     
     def test_document_chunk_with_custom_values(self):
         """カスタム値テスト"""

@@ -94,18 +94,18 @@ class TestVectorSearchPerformance:
     
     def test_batch_embedding_performance(self, mock_openai_client):
         """バッチ埋め込み生成性能テスト"""
-        service = EmbeddingService()
+        service = EmbeddingService("test-api-key")
         
         # 大量のテキストを準備
         texts = [f"テストテキスト{i}です。" for i in range(100)]
         
         start_time = time.time()
-        embeddings = service.generate_batch_embeddings(texts)
+        result = service.create_batch_embeddings(texts)
         processing_time = time.time() - start_time
         
         # パフォーマンス要件
         assert processing_time < 30.0  # 30秒以内
-        assert len(embeddings) == len(texts)
+        assert len(result.embeddings) == len(texts)
         
         # スループット計算
         throughput = len(texts) / processing_time
