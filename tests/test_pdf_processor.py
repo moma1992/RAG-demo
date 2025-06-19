@@ -6,7 +6,8 @@ TDDアプローチによるPDFプロセッサーのテストケース
 
 import pytest
 from unittest.mock import Mock, patch
-from services.pdf_processor import PDFProcessor, PDFProcessingError, DocumentChunk
+from services.pdf_processor import PDFProcessor, PDFProcessingError
+from models.document import DocumentChunk
 
 
 class TestPDFProcessor:
@@ -97,8 +98,51 @@ class TestPDFProcessor:
         # mock_logger.error.assert_called()
 
 
+    def test_pdf_processor_with_real_pdf_files(self, sample_pdf_file, mock_fitz, mock_spacy):
+        """実際のPDFファイルを使用したテスト"""
+        processor = PDFProcessor()
+        
+        # ファイルの存在確認
+        assert sample_pdf_file.exists()
+        
+        # ファイルを読み込んでバイトデータとして処理
+        pdf_bytes = sample_pdf_file.read_bytes()
+        result = processor.process_pdf(pdf_bytes, sample_pdf_file.name)
+        
+        assert result is not None
+        assert result.total_pages > 0
+        assert result.total_chunks > 0
+
+    def test_pdf_processor_multi_page(self, multi_page_pdf_file, mock_fitz, mock_spacy):
+        """複数ページPDFテスト"""
+        processor = PDFProcessor()
+        
+        pdf_bytes = multi_page_pdf_file.read_bytes()
+        result = processor.process_pdf(pdf_bytes, multi_page_pdf_file.name)
+        
+        assert result.total_pages >= 2  # 複数ページのPDF
+        assert len(result.chunks) > 0
+
+    def test_pdf_processor_corrupt_file(self, corrupt_pdf_file):
+        """破損PDFファイルテスト"""
+        processor = PDFProcessor()
+        
+        pdf_bytes = corrupt_pdf_file.read_bytes()
+        
+        with pytest.raises(PDFProcessingError):
+            processor.process_pdf(pdf_bytes, corrupt_pdf_file.name)
+
+    def test_extract_text_with_real_files(self, sample_pdf_file, mock_fitz):
+        """実PDFファイルからのテキスト抽出テスト"""
+        processor = PDFProcessor()
+        
+        result = processor.extract_text_from_pdf(sample_pdf_file)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
 class TestDocumentChunk:
-    """DocumentChunkテストクラス"""
+    """DocumentChunkテストクラス（models.document.DocumentChunkを使用）"""
     
     def test_document_chunk_default_values(self):
         """デフォルト値テスト"""
@@ -113,6 +157,7 @@ class TestDocumentChunk:
         assert chunk.start_pos is None
         assert chunk.end_pos is None
         assert chunk.embedding is None
+        assert len(chunk.id) == 36  # UUID length
     
     def test_document_chunk_with_custom_values(self):
         """カスタム値テスト"""
@@ -131,6 +176,39 @@ class TestDocumentChunk:
         assert chunk.chapter_number == 2
         assert chunk.section_name == "第2章"
         assert chunk.token_count == 25
+        assert len(chunk.id) == 36
+
+    def test_document_chunk_with_positions(self):
+        """位置情報付きDocumentChunkテスト"""
+        from models.document import ChunkPosition
+        
+        start_pos = ChunkPosition(x=0, y=100, width=500, height=50)
+        end_pos = ChunkPosition(x=0, y=50, width=500, height=50)
+        
+        chunk = DocumentChunk(
+            content="位置情報付きチャンク",
+            filename="positioned.pdf",
+            start_pos=start_pos,
+            end_pos=end_pos
+        )
+        
+        assert chunk.start_pos == start_pos
+        assert chunk.end_pos == end_pos
+        assert chunk.start_pos.x == 0
+        assert chunk.end_pos.height == 50
+
+    def test_document_chunk_with_embedding(self):
+        """埋め込みベクトル付きテスト"""
+        embedding = [0.1] * 1536
+        
+        chunk = DocumentChunk(
+            content="埋め込み付きチャンク",
+            filename="embedded.pdf",
+            embedding=embedding
+        )
+        
+        assert chunk.embedding == embedding
+        assert len(chunk.embedding) == 1536
 
 
 # 統合テスト

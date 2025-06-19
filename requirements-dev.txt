@@ -6,6 +6,7 @@ pytest-cov>=4.1.0
 pytest-mock>=3.11.0
 pytest-asyncio>=0.21.0
 pytest-xdist>=3.3.0
+pytest-benchmark>=4.0.0
 
 # Code Quality & Formatting
 black>=23.7.0
@@ -31,6 +32,7 @@ notebook>=7.0.0
 # Performance Profiling
 memory-profiler>=0.61.0
 line-profiler>=4.1.0
+psutil>=5.9.0
 
 # Debugging
 debugpy>=1.7.0
