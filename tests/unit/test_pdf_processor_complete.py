@@ -12,7 +12,8 @@ import tempfile
 import time
 from services.pdf_processor import (
     PDFProcessor, PDFProcessingError, DocumentChunk, 
-    Document, Page, TextBlock, ProcessingResult
+    Document, Page, TextBlock, ProcessingResult,
+    Section, DocumentStructure
 )
 
 
@@ -407,6 +408,8 @@ class TestCoverageTargets:
         document = Document("", [])
         chunk = DocumentChunk("", "", 0)
         result = ProcessingResult([], 0, 0, 0.0, [])
+        section = Section("test title", 1, 1)
+        doc_structure = DocumentStructure([])
         
         # 基本的なアトリビュートアクセステスト
         assert hasattr(text_block, 'content')
@@ -414,6 +417,8 @@ class TestCoverageTargets:
         assert hasattr(document, 'filename')
         assert hasattr(chunk, 'content')
         assert hasattr(result, 'chunks')
+        assert hasattr(section, 'title')
+        assert hasattr(doc_structure, 'sections')
     
     def test_error_class_coverage(self):
         """例外クラスのカバレッジ確認"""
@@ -434,3 +439,4 @@ class TestCoverageTargets:
         assert hasattr(processor, 'extract_text_from_pdf')
         assert callable(getattr(processor, 'process_pdf'))
         assert callable(getattr(processor, 'extract_text_from_pdf'))
+        assert callable(getattr(processor, 'analyze_document_structure'))
