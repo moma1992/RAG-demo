@@ -1,10 +1,107 @@
 """
 サンプルテストデータ
 
-テストで使用するサンプルデータの定義
+テストで使用するサンプルデータの定義とPDFファイル生成機能
 """
 
+import io
+import tempfile
+from pathlib import Path
 from typing import List, Dict, Any
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter, A4
+
+
+class PDFSampleGenerator:
+    """テスト用PDFファイル生成クラス"""
+    
+    @staticmethod
+    def create_simple_pdf() -> bytes:
+        """シンプルなテスト用PDF生成"""
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=letter)
+        
+        # 基本テキスト
+        p.drawString(100, 750, "テスト文書")
+        p.drawString(100, 700, "これはPDF処理テスト用のサンプル文書です。")
+        p.drawString(100, 650, "第1章: はじめに")
+        p.drawString(100, 600, "この章では基本的な内容を説明します。")
+        p.drawString(100, 550, "第2章: 詳細な説明")
+        p.drawString(100, 500, "ここで詳しい内容を記述しています。")
+        
+        p.showPage()
+        p.save()
+        
+        buffer.seek(0)
+        return buffer.read()
+    
+    @staticmethod
+    def create_multi_page_pdf() -> bytes:
+        """複数ページのテスト用PDF生成"""
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        
+        # 1ページ目
+        p.drawString(100, 800, "第1ページ")
+        p.drawString(100, 750, "新入社員向け研修資料")
+        p.drawString(100, 700, "目次:")
+        p.drawString(120, 650, "1. 会社概要")
+        p.drawString(120, 600, "2. 業務フロー")
+        p.drawString(120, 550, "3. システム操作")
+        
+        # 2ページ目
+        p.showPage()
+        p.drawString(100, 800, "第2ページ - 会社概要")
+        p.drawString(100, 750, "当社は2020年に設立されました。")
+        p.drawString(100, 700, "主な事業内容:")
+        p.drawString(120, 650, "- ソフトウェア開発")
+        p.drawString(120, 600, "- システム設計")
+        p.drawString(120, 550, "- コンサルティング")
+        
+        # 3ページ目
+        p.showPage()
+        p.drawString(100, 800, "第3ページ - 業務フロー")
+        p.drawString(100, 750, "日常の業務手順について説明します。")
+        p.drawString(100, 700, "1. 朝礼（9:00-9:15）")
+        p.drawString(100, 650, "2. 業務開始（9:15-12:00）")
+        p.drawString(100, 600, "3. 昼休み（12:00-13:00）")
+        p.drawString(100, 550, "4. 午後業務（13:00-18:00）")
+        
+        p.showPage()
+        p.save()
+        
+        buffer.seek(0)
+        return buffer.read()
+    
+    @staticmethod
+    def create_corrupted_pdf() -> bytes:
+        """破損したPDF（テスト用）"""
+        return b"This is not a valid PDF file content"
+    
+    @staticmethod
+    def create_empty_pdf() -> bytes:
+        """空のPDFファイル"""
+        return b""
+
+
+def create_test_pdf_files(temp_dir: Path) -> Dict[str, Path]:
+    """テスト用PDFファイル一式を作成"""
+    generator = PDFSampleGenerator()
+    
+    files = {
+        "simple": temp_dir / "simple_test.pdf",
+        "multi_page": temp_dir / "multi_page_test.pdf", 
+        "corrupted": temp_dir / "corrupted_test.pdf",
+        "empty": temp_dir / "empty_test.pdf"
+    }
+    
+    # ファイル作成
+    files["simple"].write_bytes(generator.create_simple_pdf())
+    files["multi_page"].write_bytes(generator.create_multi_page_pdf())
+    files["corrupted"].write_bytes(generator.create_corrupted_pdf())
+    files["empty"].write_bytes(generator.create_empty_pdf())
+    
+    return files
 
 
 # サンプルPDFテキストデータ
