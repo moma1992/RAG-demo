@@ -47,7 +47,6 @@ jobs:
         echo "Mock environment variables set for testing"
 
     - name: Run tests with coverage
-      continue-on-error: true
       env:
         OPENAI_API_KEY: mock_openai_key_for_testing
         ANTHROPIC_API_KEY: mock_anthropic_key_for_testing
