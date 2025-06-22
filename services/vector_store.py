@@ -44,8 +44,15 @@ class VectorStore:
         """
         self.supabase_url = supabase_url
         self.supabase_key = supabase_key
+        
+        # Supabaseクライアント初期化（テスト時はモック対象）
+        try:
+            from supabase import create_client
+            self.client = create_client(supabase_url, supabase_key)
+        except ImportError:
+            self.client = None
+            
         logger.info("VectorStore初期化完了")
-        # TODO: Supabaseクライアント初期化
     
     def store_document(self, document_data: Dict[str, Any]) -> str:
         """
@@ -63,11 +70,18 @@ class VectorStore:
         logger.info(f"文書保存開始: {document_data.get('filename', 'unknown')}")
         
         try:
-            # TODO: Supabase実装
             document_id = str(uuid.uuid4())
             
             # documentsテーブルに挿入
-            # document_chunks テーブルに挿入
+            if self.client:
+                result = self.client.table("documents").insert({
+                    "id": document_id,
+                    "filename": document_data.get("filename"),
+                    "original_filename": document_data.get("original_filename", document_data.get("filename")),
+                    "file_size": document_data.get("file_size", 0),
+                    "total_pages": document_data.get("total_pages", 0),
+                    "processing_status": "processing"
+                }).execute()
             
             logger.info(f"文書保存完了: {document_id}")
             return document_id
@@ -195,9 +209,11 @@ class VectorStore:
         logger.info(f"文書削除開始: {document_id}")
         
         try:
-            # TODO: Supabase実装
-            # CASCADE削除でchunksも一緒に削除される
-            pass
+            # documentsテーブルから削除（CASCADE削除でchunksも一緒に削除される）
+            if self.client:
+                result = self.client.table("documents").delete().eq("id", document_id).execute()
+            
+            logger.info(f"文書削除完了: {document_id}")
             
         except Exception as e:
             logger.error(f"文書削除エラー: {str(e)}", exc_info=True)

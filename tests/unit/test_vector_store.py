@@ -137,11 +137,10 @@ class TestVectorStore:
     
     def test_delete_document_failure(self, mock_supabase_client):
         """文書削除失敗テスト"""
+        # エラーをシミュレートするモック設定
+        mock_supabase_client.table.return_value.delete.return_value.eq.return_value.execute.side_effect = Exception("Delete error")
+        
         store = VectorStore("https://test.supabase.co", "test-key")
-        
-        # Supabaseエラーをシミュレート
-        mock_supabase_client.table.return_value.delete.return_value.execute.side_effect = Exception("Delete error")
-        
         document_id = str(uuid.uuid4())
         
         with pytest.raises(VectorStoreError):

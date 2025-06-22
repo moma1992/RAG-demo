@@ -56,6 +56,14 @@ class PDFProcessor:
         """
         logger.info(f"PDF処理開始: {filename}")
         
+        # 空ファイルチェック
+        if not pdf_bytes or len(pdf_bytes) == 0:
+            raise PDFProcessingError("PDFファイルが空です")
+        
+        # 無効PDFファイルチェック（PDFヘッダーの確認）
+        if not pdf_bytes.startswith(b'%PDF-'):
+            raise PDFProcessingError("無効なPDFファイルです")
+        
         try:
             # TODO: 実装
             # 1. PyMuPDFでPDF読み込み
