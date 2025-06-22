@@ -117,7 +117,30 @@ def mock_fitz():
     with patch('fitz.open') as mock_open:
         mock_doc = Mock()
         mock_page = Mock()
-        mock_page.get_text.return_value = "サンプルPDFテキスト"
+        def mock_get_text(mode="text"):
+            if mode == "dict":
+                return {
+                    "blocks": [
+                        {
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "text": "サンプルPDFテキスト",
+                                            "bbox": [100, 750, 500, 770],
+                                            "size": 12.0,
+                                            "font": "Arial"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            else:
+                return "サンプルPDFテキスト"
+        
+        mock_page.get_text = mock_get_text
         mock_page.number = 0
         mock_page.rect = Mock(width=595, height=842)
         mock_page.get_text_blocks.return_value = [
@@ -133,6 +156,10 @@ def mock_fitz():
             "subject": "テスト用PDF"
         }
         mock_open.return_value = mock_doc
+        
+        # close メソッドのモック
+        mock_doc.close = Mock()
+        
         yield mock_doc
 
 @pytest.fixture 
@@ -222,4 +249,13 @@ def mock_streamlit_session():
 @pytest.fixture(autouse=True)
 def mock_external_apis(mock_openai_client, mock_claude_client, mock_supabase_client):
     """全テストで外部API呼び出しをモック化"""
-    yield
+    # spaCyの初期化もモック化
+    with patch('spacy.load') as mock_spacy_load, \
+         patch('spacy.blank') as mock_spacy_blank:
+        
+        # spaCy モックNLPオブジェクト作成
+        mock_nlp = Mock()
+        mock_nlp.return_value = Mock()
+        mock_spacy_load.return_value = mock_nlp
+        mock_spacy_blank.return_value = mock_nlp
+        yield
