@@ -6,7 +6,8 @@ Supabase統合とベクトル検索のテストケース
 
 import pytest
 from unittest.mock import Mock, patch
-from services.vector_store import VectorStore, VectorStoreError, SearchResult, DocumentRecord
+from services.vector_store import VectorStore, VectorStoreError, DocumentRecord
+from models.document import SearchResult
 import uuid
 
 
@@ -88,8 +89,9 @@ class TestVectorStore:
         if results:
             for result in results:
                 assert isinstance(result, SearchResult)
-                assert hasattr(result, 'content')
+                assert hasattr(result, 'chunk')
                 assert hasattr(result, 'similarity_score')
+                assert hasattr(result, 'rank')
                 assert 0 <= result.similarity_score <= 1
     
     def test_similarity_search_with_threshold(self, mock_supabase_client):
@@ -153,19 +155,32 @@ class TestSearchResult:
     
     def test_search_result_creation(self):
         """SearchResult作成テスト"""
-        result = SearchResult(
+        from models.document import DocumentChunk, ChunkPosition
+        
+        # DocumentChunkを作成
+        chunk = DocumentChunk(
             content="テスト結果",
             filename="test.pdf",
             page_number=1,
-            similarity_score=0.85,
-            metadata={"section": "第1章"}
+            chapter_number=1,
+            section_name="第1章",
+            start_pos=ChunkPosition(x=0, y=0, width=100, height=50),
+            end_pos=ChunkPosition(x=100, y=50, width=100, height=50),
+            token_count=20
         )
         
-        assert result.content == "テスト結果"
-        assert result.filename == "test.pdf"
-        assert result.page_number == 1
+        # SearchResultを作成
+        result = SearchResult(
+            chunk=chunk,
+            similarity_score=0.85,
+            rank=1
+        )
+        
+        assert result.chunk.content == "テスト結果"
+        assert result.chunk.filename == "test.pdf"
+        assert result.chunk.page_number == 1
         assert result.similarity_score == 0.85
-        assert result.metadata["section"] == "第1章"
+        assert result.rank == 1
 
 
 class TestDocumentRecord:

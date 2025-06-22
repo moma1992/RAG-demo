@@ -8,17 +8,9 @@ from typing import List, Dict, Any, Optional, Tuple
 import logging
 from dataclasses import dataclass
 import uuid
+from models.document import SearchResult, DocumentChunk
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class SearchResult:
-    """検索結果データクラス"""
-    content: str
-    filename: str
-    page_number: int
-    similarity_score: float
-    metadata: Dict[str, Any]
 
 @dataclass
 class DocumentRecord:
@@ -128,14 +120,26 @@ class VectorStore:
             # ORDER BY similarity
             # LIMIT %s
             
-            # ダミーデータ
+            # ダミーデータ - DocumentChunkを作成してSearchResultに使用
+            from models.document import ChunkPosition
+            
+            sample_chunk = DocumentChunk(
+                id=str(uuid.uuid4()),
+                content="サンプル検索結果です。",
+                filename="sample.pdf",
+                page_number=1,
+                chapter_number=1,
+                section_name="はじめに",
+                start_pos=ChunkPosition(x=0, y=0, width=100, height=50),
+                end_pos=ChunkPosition(x=100, y=50, width=100, height=50),
+                token_count=20
+            )
+            
             results = [
                 SearchResult(
-                    content="サンプル検索結果です。",
-                    filename="sample.pdf",
-                    page_number=1,
+                    chunk=sample_chunk,
                     similarity_score=0.85,
-                    metadata={"section": "はじめに"}
+                    rank=1
                 )
             ]
             

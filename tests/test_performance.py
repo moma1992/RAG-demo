@@ -6,7 +6,6 @@ PDF処理とベクトル検索のパフォーマンス測定
 
 import pytest
 import time
-from memory_profiler import profile
 from pathlib import Path
 from unittest.mock import Mock, patch
 from services.pdf_processor import PDFProcessor
