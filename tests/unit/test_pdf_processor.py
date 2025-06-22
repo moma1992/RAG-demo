@@ -2,14 +2,20 @@
 PDF処理サービスの単体テスト
 
 TDDアプローチによるPDFプロセッサーのテストケース
+Issue #17: PDF処理システム - TDDセットアップ・テスト基盤構築
 """
 
 import pytest
-from unittest.mock import Mock, patch
-from services.pdf_processor import PDFProcessor, PDFProcessingError, DocumentChunk
+from unittest.mock import Mock, patch, MagicMock
+from pathlib import Path
+import tempfile
+from services.pdf_processor import (
+    PDFProcessor, PDFProcessingError, DocumentChunk, 
+    Document, Page, TextBlock, ProcessingResult
+)
 
 
-class TestPDFProcessor:
+class TestPDFProcessorSetup:
     """PDFプロセッサーテストクラス"""
     
     def test_init(self):

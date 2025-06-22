@@ -43,6 +43,7 @@ types-urllib3>=1.26.0
 # Test Data Generation
 faker>=19.6.0
 factory-boy>=3.3.0
+reportlab>=4.0.0
 
 # Additional Code Quality Tools
 flake8-docstrings>=1.7.0

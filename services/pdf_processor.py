@@ -12,6 +12,29 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 @dataclass
+class TextBlock:
+    """テキストブロックデータクラス"""
+    content: str
+    bbox: Dict[str, float]  # {"x0": 0, "y0": 0, "x1": 100, "y1": 20}
+    font_size: float
+    font_name: str
+    
+@dataclass
+class Page:
+    """ページデータクラス"""
+    page_number: int
+    text_blocks: List[TextBlock]
+    page_size: Dict[str, int]  # {"width": 595, "height": 842}
+    
+@dataclass
+class Document:
+    """文書データクラス"""
+    filename: str
+    pages: List[Page]
+    metadata: Optional[Dict[str, Any]] = None
+    total_pages: Optional[int] = None
+
+@dataclass
 class DocumentChunk:
     """文書チャンクデータクラス"""
     content: str

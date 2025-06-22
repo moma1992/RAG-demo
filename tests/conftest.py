@@ -84,6 +84,32 @@ def mock_spacy():
         mock_load.return_value = mock_nlp
         yield mock_nlp
 
+@pytest.fixture
+def mock_spacy_nlp():
+    """spaCy NLPパイプライン詳細モック"""
+    mock_nlp = Mock()
+    
+    # 文書解析結果のモック
+    def process_text(text):
+        mock_doc = Mock()
+        # 文章境界の検出（句点で分割）
+        sentences = text.split('。')
+        mock_sents = []
+        for i, sent in enumerate(sentences):
+            if sent.strip():
+                mock_sent = Mock()
+                mock_sent.text = sent.strip() + '。'
+                mock_sent.start = text.find(sent)
+                mock_sent.end = text.find(sent) + len(sent)
+                mock_sents.append(mock_sent)
+        
+        mock_doc.sents = mock_sents
+        mock_doc.text = text
+        return mock_doc
+    
+    mock_nlp.side_effect = process_text
+    return mock_nlp
+
 # PyMuPDFモック
 @pytest.fixture
 def mock_fitz():
@@ -93,11 +119,51 @@ def mock_fitz():
         mock_page = Mock()
         mock_page.get_text.return_value = "サンプルPDFテキスト"
         mock_page.number = 0
+        mock_page.rect = Mock(width=595, height=842)
+        mock_page.get_text_blocks.return_value = [
+            (100, 750, 500, 770, "テストテキスト1", 0, 0),
+            (100, 700, 500, 720, "テストテキスト2", 0, 1)
+        ]
         mock_doc.__len__ = Mock(return_value=1)
         mock_doc.__getitem__ = Mock(return_value=mock_page)
         mock_doc.page_count = 1
+        mock_doc.metadata = {
+            "title": "テスト文書",
+            "author": "テスト作成者",
+            "subject": "テスト用PDF"
+        }
         mock_open.return_value = mock_doc
         yield mock_doc
+
+@pytest.fixture 
+def mock_fitz_document():
+    """PyMuPDF Document詳細モック"""
+    mock_doc = Mock()
+    mock_doc.page_count = 3
+    mock_doc.metadata = {
+        'title': 'テスト文書',
+        'author': 'テスト著者',
+        'subject': 'PDF処理テスト',
+        'creator': 'pytest'
+    }
+    
+    # 複数ページのモック
+    pages = []
+    for i in range(3):
+        mock_page = Mock()
+        mock_page.number = i
+        mock_page.rect = Mock(width=595, height=842)
+        mock_page.get_text.return_value = f"ページ{i+1}のテキスト内容です。"
+        mock_page.get_text_blocks.return_value = [
+            (100, 750-j*30, 500, 770-j*30, f"ページ{i+1}のブロック{j+1}", 0, j)
+            for j in range(3)
+        ]
+        pages.append(mock_page)
+    
+    mock_doc.__getitem__ = lambda self, idx: pages[idx]
+    mock_doc.__len__ = lambda self: len(pages)
+    
+    return mock_doc
 
 # テスト用PDFファイル
 @pytest.fixture
@@ -105,6 +171,24 @@ def sample_pdf_bytes():
     """サンプルPDFバイトデータ"""
     # 最小限のPDFヘッダー（実際のPDF処理テストには適さないが、ファイル形式テストには使用可能）
     return b"%PDF-1.4\n%Test PDF content\n%%EOF"
+
+@pytest.fixture
+def real_sample_pdf_bytes():
+    """実際のPDFファイル生成（reportlab使用）"""
+    from tests.fixtures.sample_data import PDFSampleGenerator
+    return PDFSampleGenerator.create_simple_pdf()
+
+@pytest.fixture
+def multi_page_pdf_bytes():
+    """複数ページPDFファイル生成"""
+    from tests.fixtures.sample_data import PDFSampleGenerator
+    return PDFSampleGenerator.create_multi_page_pdf()
+
+@pytest.fixture
+def test_pdf_files(temp_dir):
+    """テスト用PDFファイル一式"""
+    from tests.fixtures.sample_data import create_test_pdf_files
+    return create_test_pdf_files(temp_dir)
 
 # テスト用一時ディレクトリ
 @pytest.fixture
