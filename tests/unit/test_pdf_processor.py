@@ -63,8 +63,10 @@ class TestPDFProcessorSetup:
         
         result = processor.extract_text_from_pdf(pdf_path)
         
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert isinstance(result, Document)
+        assert result.filename == "test"
+        assert result.total_pages >= 1
+        assert len(result.pages) >= 1
     
     def test_extract_text_from_pdf_file_not_found(self, temp_dir):
         """PDFファイル未存在テスト"""

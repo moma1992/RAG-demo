@@ -106,8 +106,9 @@ class TestPDFProcessor:
         
         result = processor.extract_text_from_pdf(pdf_path)
         
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert isinstance(result, Document)
+        assert result.filename == "test"
+        assert result.total_pages >= 1
     
     def test_extract_text_from_pdf_file_not_found(self, temp_dir):
         """PDFファイル未存在テスト"""
@@ -368,15 +369,14 @@ class TestTDDWorkflow:
         # chapters = processor.detect_chapters(sample_pdf)
         # assert len(chapters) > 0
     
-    def test_green_phase_example(self):
+    def test_green_phase_example(self, sample_pdf_bytes, mock_fitz):
         """Green フェーズ: 最小実装確認"""
         # 最小限の実装が動作することを確認
         processor = PDFProcessor()
         assert processor is not None
         
-        # 基本的な処理が動作することを確認
-        sample_bytes = b"%PDF-1.4\ntest\n%%EOF"
-        result = processor.process_pdf(sample_bytes, "minimal.pdf")
+        # 基本的な処理が動作することを確認（モックを使用）
+        result = processor.process_pdf(sample_pdf_bytes, "minimal.pdf")
         assert isinstance(result, ProcessingResult)
     
     def test_refactor_phase_example(self):
