@@ -2,10 +2,17 @@
 ベクトル類似検索サービス
 
 Issue #37: Vector Similarity Search Implementation
-TDD Green フェーズ: 最小実装
+高性能ベクトル類似検索システム実装
 
 LangChain SupabaseVectorStoreを活用した
-高性能ベクトル類似検索システム
+企業内文書検索向けベクトル検索エンジン
+
+主要機能:
+- 意味的類似検索（OpenAI埋め込みベクトル）
+- ハイブリッド検索（ベクトル + 全文検索）
+- フィルタリング機能（メタデータベース）
+- パフォーマンス最適化（500ms以下）
+- セキュリティ検証（入力値検証）
 """
 
 import logging
@@ -16,6 +23,16 @@ from dataclasses import dataclass, field
 import uuid
 
 logger = logging.getLogger(__name__)
+
+# パフォーマンス最適化定数
+DEFAULT_SIMILARITY_THRESHOLD = 0.7
+DEFAULT_SEARCH_LIMIT = 10
+MAX_SEARCH_LIMIT = 100
+PERFORMANCE_WARNING_THRESHOLD_MS = 500
+
+# セキュリティ関連定数
+MAX_QUERY_LENGTH = 1000
+MAX_FILTER_DEPTH = 3
 
 
 @dataclass
@@ -40,8 +57,11 @@ class SearchQuery:
         if not isinstance(self.text, str) or not self.text.strip():
             raise ValueError("text は空でない文字列である必要があります")
         
-        if not isinstance(self.limit, int) or not (1 <= self.limit <= 100):
-            raise ValueError("limit は1以上100以下である必要があります")
+        if len(self.text) > MAX_QUERY_LENGTH:
+            raise ValueError(f"クエリテキストが長すぎます（最大{MAX_QUERY_LENGTH}文字）")
+        
+        if not isinstance(self.limit, int) or not (1 <= self.limit <= MAX_SEARCH_LIMIT):
+            raise ValueError(f"limit は1以上{MAX_SEARCH_LIMIT}以下である必要があります")
         
         if not isinstance(self.similarity_threshold, (int, float)) or not (0.0 <= self.similarity_threshold <= 1.0):
             raise ValueError("similarity_threshold は0.0-1.0の範囲である必要があります")
@@ -186,6 +206,10 @@ class VectorSearch:
             
             end_time = time.time()
             response_time = (end_time - start_time) * 1000
+            
+            # パフォーマンス警告チェック
+            if response_time > PERFORMANCE_WARNING_THRESHOLD_MS:
+                logger.warning(f"検索時間が閾値を超過: {response_time:.2f}ms > {PERFORMANCE_WARNING_THRESHOLD_MS}ms")
             
             logger.info(f"類似検索完了: {len(search_results)}件, {response_time:.2f}ms")
             
