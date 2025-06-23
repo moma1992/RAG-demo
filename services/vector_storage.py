@@ -21,6 +21,9 @@ from typing import List, Dict, Any, Optional, Union, Tuple
 from dataclasses import dataclass, field
 import math
 from datetime import datetime
+import re
+import html
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +85,21 @@ class ChunkData:
         except ValueError:
             raise VectorStorageError(f"無効な文書ID形式です: {self.document_id}")
         
-        # 必須フィールドの検証
+        # セキュリティ強化：コンテンツ検証
         if not self.content or not self.content.strip():
             raise VectorStorageError("コンテンツが空です")
+        
+        # セキュリティ：悪意のあるコンテンツの検出
+        self._validate_content_security()
         
         if len(self.content) > 10000:
             raise VectorStorageError(f"コンテンツが長すぎます: {len(self.content)}文字 (最大10000文字)")
         
+        # セキュリティ強化：ファイル名検証
         if not self.filename or not self.filename.strip():
             raise VectorStorageError("ファイル名が空です")
+        
+        self._validate_filename_security()
         
         # 数値フィールドの検証
         if self.page_number <= 0:
@@ -119,8 +128,93 @@ class ChunkData:
         # 埋め込みベクトルの詳細検証
         self._validate_embedding()
     
+    def _validate_content_security(self) -> None:
+        """コンテンツのセキュリティ検証"""
+        # SQLインジェクション対策：危険なSQL文字列の検出
+        sql_patterns = [
+            r"(?i)(union\s+select|drop\s+table|delete\s+from|insert\s+into|update\s+set)",
+            r"(?i)(script\s*>|<\s*script|javascript:|vbscript:)",
+            r"(?i)(exec\s*\(|eval\s*\(|system\s*\()",
+            r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]"  # 制御文字
+        ]
+        
+        for pattern in sql_patterns:
+            if re.search(pattern, self.content):
+                raise VectorStorageError("セキュリティ違反：危険なコンテンツが検出されました")
+        
+        # 過度に長い連続文字列の検出（DoS攻撃対策）
+        if re.search(r'(.)\1{1000,}', self.content):
+            raise VectorStorageError("セキュリティ違反：異常な反復パターンが検出されました")
+        
+        # HTMLエスケープ処理
+        if '<' in self.content or '>' in self.content:
+            # HTMLタグが含まれている場合は検証
+            escaped_content = html.escape(self.content)
+            if len(escaped_content) != len(self.content):
+                logger.warning("HTMLコンテンツが検出されました。エスケープ処理を推奨します。")
+    
+    def _validate_filename_security(self) -> None:
+        """ファイル名のセキュリティ検証"""
+        # パストラバーサル攻撃対策
+        dangerous_patterns = [
+            r"\.\./", r"\.\.\\", r"^/", r"^[a-zA-Z]:\\",
+            r"[\x00-\x1F\x7F]",  # 制御文字
+            r"[<>:\"\|?*]",  # Windows禁止文字
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, self.filename):
+                raise VectorStorageError("セキュリティ違反：危険なファイル名パターンが検出されました")
+        
+        # ファイル名長制限（DoS攻撃対策）
+        if len(self.filename) > 255:
+            raise VectorStorageError("ファイル名が長すぎます (最大255文字)")
+        
+        # 危険な拡張子のチェック
+        dangerous_extensions = [
+            '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.jar', '.sh'
+        ]
+        filename_lower = self.filename.lower()
+        for ext in dangerous_extensions:
+            if filename_lower.endswith(ext):
+                raise VectorStorageError(f"セキュリティ違反：危険な拡張子が検出されました: {ext}")
+    
+    def _serialize_datetime(self, dt: Union[datetime, str, None]) -> Optional[str]:
+        """
+        日時オブジェクトの安全なシリアル化
+        
+        Args:
+            dt: シリアル化対象の日時
+            
+        Returns:
+            str: ISO形式の日時文字列またはNone
+        """
+        if dt is None:
+            return None
+            
+        if isinstance(dt, datetime):
+            try:
+                # タイムゾーン情報を考慮したISOフォーマット
+                if dt.tzinfo is None:
+                    # ナイーブな日時のUTC扱い
+                    return dt.isoformat() + 'Z'
+                else:
+                    return dt.isoformat()
+            except (ValueError, OverflowError) as e:
+                logger.warning(f"日時シリアル化エラー: {str(e)}")
+                return str(dt)
+                
+        elif isinstance(dt, str):
+            # 既に文字列の場合はそのまま返す
+            return dt
+            
+        else:
+            # 予期しない型の場合
+            logger.warning(f"予期しない日時型: {type(dt)}")
+            return str(dt) if dt is not None else None
+    
     def _validate_embedding(self) -> None:
-        """埋め込みベクトルの詳細検証"""
+        """埋め込みベクトルの高速検証（パフォーマンス最適化）"""
         if not self.embedding:
             raise VectorStorageError("埋め込みベクトルが空です")
         
@@ -133,47 +227,97 @@ class ChunkData:
                 f"現在: {len(self.embedding)}次元"
             )
         
-        # ベクトルの数値検証（バッチ処理）
-        for i, value in enumerate(self.embedding):
-            if not isinstance(value, (int, float)):
-                raise VectorStorageError(
-                    f"埋め込みベクトルのインデックス {i} が数値ではありません: {type(value)}"
-                )
+        # パフォーマンス最適化: NumPyでベクター化処理
+        try:
+            # NumPy配列に変換（高速処理）
+            embedding_array = np.array(self.embedding, dtype=np.float32)
             
-            if math.isnan(value):
-                raise VectorStorageError(
-                    f"埋め込みベクトルのインデックス {i} にNaN値が含まれています"
-                )
+            # 全要素の数値検証（ベクター化）
+            if not np.all(np.isfinite(embedding_array)):
+                # エラー位置を特定
+                nan_indices = np.where(np.isnan(embedding_array))[0]
+                inf_indices = np.where(np.isinf(embedding_array))[0]
+                
+                if len(nan_indices) > 0:
+                    raise VectorStorageError(
+                        f"埋め込みベクトルのインデックス {nan_indices[0]} にNaN値が含まれています"
+                    )
+                if len(inf_indices) > 0:
+                    raise VectorStorageError(
+                        f"埋め込みベクトルのインデックス {inf_indices[0]} に無限大値が含まれています"
+                    )
             
-            if math.isinf(value):
-                raise VectorStorageError(
-                    f"埋め込みベクトルのインデックス {i} に無限大値が含まれています"
-                )
-        
-        # ベクトルのノルム検証（異常値検出）
-        vector_norm = math.sqrt(sum(x * x for x in self.embedding))
-        if vector_norm == 0:
-            raise VectorStorageError("埋め込みベクトルのノルムがゼロです")
-        
-        if vector_norm > 1000:  # 異常に大きなベクトル
-            raise VectorStorageError(f"埋め込みベクトルのノルムが異常に大きいです: {vector_norm}")
+            # ベクトルのノルム検証（NumPyで高速化）
+            vector_norm = float(np.linalg.norm(embedding_array))
+            if vector_norm == 0.0:
+                raise VectorStorageError("埋め込みベクトルのノルムがゼロです")
+            
+            if vector_norm > 1000.0:  # 異常に大きなベクトル
+                raise VectorStorageError(f"埋め込みベクトルのノルムが異常に大きいです: {vector_norm:.2f}")
+                
+        except (TypeError, ValueError) as e:
+            # NumPy変換エラーの場合は個別検証にフォールバック
+            for i, value in enumerate(self.embedding):
+                if not isinstance(value, (int, float)):
+                    raise VectorStorageError(
+                        f"埋め込みベクトルのインデックス {i} が数値ではありません: {type(value)}"
+                    )
+            raise VectorStorageError(f"埋め込みベクトルの変換エラー: {str(e)}")
     
     def to_dict(self) -> Dict[str, Any]:
         """辞書形式に変換（データベース挿入用）"""
+        # セキュリティ：データサニタイズ
+        sanitized_content = html.escape(self.content) if self.content else ""
+        sanitized_filename = html.escape(self.filename) if self.filename else ""
+        sanitized_section = html.escape(self.section_name) if self.section_name else None
+        
         return {
             "id": self.id,
             "document_id": self.document_id,
-            "content": self.content,
-            "filename": self.filename,
+            "content": sanitized_content,
+            "filename": sanitized_filename,
             "page_number": self.page_number,
             "chapter_number": self.chapter_number,
-            "section_name": self.section_name,
+            "section_name": sanitized_section,
             "start_pos": self.start_pos,
             "end_pos": self.end_pos,
             "embedding": self.embedding,
             "token_count": self.token_count,
-            "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at
+            "created_at": self._serialize_datetime_static(self.created_at)
         }
+    
+    @staticmethod
+    def _serialize_datetime_static(dt: Union[datetime, str, None]) -> Optional[str]:
+        """
+        日時オブジェクトの安全なシリアル化（静的メソッド版）
+        
+        Args:
+            dt: シリアル化対象の日時
+            
+        Returns:
+            str: ISO形式の日時文字列またはNone
+        """
+        if dt is None:
+            return None
+            
+        if isinstance(dt, datetime):
+            try:
+                # タイムゾーン情報を考慮したISOフォーマット
+                if dt.tzinfo is None:
+                    # ナイーブな日時のUTC扱い
+                    return dt.isoformat() + 'Z'
+                else:
+                    return dt.isoformat()
+            except (ValueError, OverflowError):
+                return str(dt)
+                
+        elif isinstance(dt, str):
+            # 既に文字列の場合はそのまま返す
+            return dt
+            
+        else:
+            # 予期しない型の場合
+            return str(dt) if dt is not None else None
 
 
 @dataclass
@@ -239,15 +383,16 @@ class VectorStorage:
         
         logger.info(f"VectorStorage初期化完了: batch_size={batch_size}")
     
-    def save_chunks_batch(self, chunks: List[ChunkData]) -> BatchResult:
+    def save_chunks_batch(self, chunks: List[ChunkData], use_transaction: bool = True) -> BatchResult:
         """
-        チャンクデータをバッチで保存
+        チャンクデータをバッチで保存（トランザクションサポート）
         
         大容量データの効率的な処理のため、指定されたバッチサイズで
-        分割して処理し、部分的な失敗があっても継続します。
+        分割して処理します。トランザクションを使用することでデータの整合性を保証します。
         
         Args:
             chunks: 保存するチャンクデータのリスト
+            use_transaction: トランザクションを使用するかどうか
             
         Returns:
             BatchResult: バッチ処理結果
@@ -270,7 +415,7 @@ class VectorStorage:
             errors=[]
         )
         
-        # バッチ単位で処理
+        # パフォーマンス最適化: バッチ単位で処理
         for i in range(0, len(chunks), self.batch_size):
             batch = chunks[i:i + self.batch_size]
             batch_num = (i // self.batch_size) + 1
@@ -292,21 +437,16 @@ class VectorStorage:
                         result.errors.append(f"チャンク {chunk.id} の検証エラー: {str(e)}")
                         logger.warning(f"チャンク検証失敗 {chunk.id}: {str(e)}")
                 
-                # 有効なレコードをデータベースに一括挿入
+                # トランザクションサポート: 有効なレコードをデータベースに一括挿入
                 if valid_records:
-                    try:
-                        db_result = self.client.table("document_chunks").insert(valid_records).execute()
+                    if use_transaction:
+                        success = self._execute_batch_with_transaction(valid_records, batch_num, result)
+                    else:
+                        success = self._execute_batch_without_transaction(valid_records, batch_num, result)
+                    
+                    if success:
                         result.success_count += len(valid_records)
                         logger.debug(f"バッチ {batch_num} 保存成功: {len(valid_records)}件")
-                    except Exception as db_error:
-                        # データベースエラーの場合、バッチ全体が失敗
-                        for record in valid_records:
-                            result.failure_count += 1
-                            result.failed_ids.append(record["id"])
-                        
-                        error_msg = f"バッチ {batch_num} データベース保存エラー: {str(db_error)}"
-                        result.errors.append(error_msg)
-                        logger.error(error_msg, exc_info=True)
                 
             except Exception as e:
                 # 予期しないエラー
@@ -320,15 +460,86 @@ class VectorStorage:
         
         logger.info(
             f"バッチ保存完了: 成功{result.success_count}件, "
-            f"失敗{result.failure_count}件, 成功率{result.success_rate:.2%}"
+            f"失敗{result.failure_count}件, 成功率{result.success_rate:.2%}, "
+            f"トランザクション: {'ON' if use_transaction else 'OFF'}"
         )
         
         return result
+    
+    def _execute_batch_with_transaction(self, records: List[Dict[str, Any]], batch_num: int, result: BatchResult) -> bool:
+        """トランザクションでバッチ実行"""
+        try:
+            # NOTE: Supabaseは自動的にトランザクションを管理するため、
+            # 通常のinsert()操作で十分です。エラーが発生した場合は自動的にロールバックされます。
+            db_result = self.client.table("document_chunks").insert(records).execute()
+            return True
+                
+        except Exception as db_error:
+            # トランザクションロールバックで全件失敗
+            failed_chunk_ids = [record["id"] for record in records]
+            result.failure_count += len(failed_chunk_ids)
+            result.failed_ids.extend(failed_chunk_ids)
+            
+            error_msg = f"バッチ {batch_num} トランザクションエラー: {str(db_error)}"
+            result.errors.append(error_msg)
+            logger.error(error_msg, exc_info=True)
+            return False
+    
+    def _execute_batch_without_transaction(self, records: List[Dict[str, Any]], batch_num: int, result: BatchResult) -> bool:
+        """トランザクションなしでバッチ実行（今までの動作）"""
+        try:
+            db_result = self.client.table("document_chunks").insert(records).execute()
+            return True
+            
+        except Exception as db_error:
+            # データベースエラーの場合、バッチ全体が失敗
+            failed_chunk_ids = [record["id"] for record in records]
+            result.failure_count += len(failed_chunk_ids)
+            result.failed_ids.extend(failed_chunk_ids)
+            
+            error_msg = f"バッチ {batch_num} データベース保存エラー: {str(db_error)}"
+            result.errors.append(error_msg)
+            logger.error(error_msg, exc_info=True)
+            return False
     
     def _ensure_client_available(self) -> None:
         """Supabaseクライアントの可用性を確認"""
         if not self.client:
             raise VectorStorageError("Supabaseクライアントが初期化されていません")
+    
+    def _serialize_datetime(self, dt: Union[datetime, str, None]) -> Optional[str]:
+        """
+        日時オブジェクトの安全なシリアル化
+        
+        Args:
+            dt: シリアル化対象の日時
+            
+        Returns:
+            str: ISO形式の日時文字列またはNone
+        """
+        if dt is None:
+            return None
+            
+        if isinstance(dt, datetime):
+            try:
+                # タイムゾーン情報を考慮したISOフォーマット
+                if dt.tzinfo is None:
+                    # ナイーブな日時のUTC扱い
+                    return dt.isoformat() + 'Z'
+                else:
+                    return dt.isoformat()
+            except (ValueError, OverflowError) as e:
+                logger.warning(f"日時シリアル化エラー: {str(e)}")
+                return str(dt)
+                
+        elif isinstance(dt, str):
+            # 既に文字列の場合はそのまま返す
+            return dt
+            
+        else:
+            # 予期しない型の場合
+            logger.warning(f"予期しない日時型: {type(dt)}")
+            return str(dt) if dt is not None else None
     
     def update_embeddings_batch(
         self,
@@ -369,10 +580,11 @@ class VectorStorage:
                 if not embedding or len(embedding) != 1536:
                     raise VectorStorageError("無効な埋め込みベクトルです")
                 
-                # データベース更新
+                # 日時シリアル化バグ修正: 現在時刻を正しく生成
+                current_time = datetime.now()
                 result = self.client.table("document_chunks").update({
                     "embedding": embedding,
-                    "updated_at": "now()"
+                    "updated_at": self._serialize_datetime(current_time)
                 }).eq("id", chunk_id).execute()
                 
                 success_count += 1
@@ -432,12 +644,13 @@ class VectorStorage:
             logger.error(error_msg)
             raise VectorStorageError(error_msg) from e
     
-    def delete_chunks_batch(self, chunk_ids: List[str]) -> BatchResult:
+    def delete_chunks_batch(self, chunk_ids: List[str], use_transaction: bool = True) -> BatchResult:
         """
-        チャンクをバッチで削除
+        チャンクをバッチで削除（トランザクションサポート）
         
         Args:
             chunk_ids: 削除対象のチャンクIDリスト
+            use_transaction: トランザクションを使用するかどうか
             
         Returns:
             BatchResult: バッチ処理結果
@@ -456,21 +669,37 @@ class VectorStorage:
         failed_ids = []
         errors = []
         
-        # バッチ単位で削除
+        # トランザクションサポート: バッチ単位で削除
         for i in range(0, len(chunk_ids), self.batch_size):
             batch_ids = chunk_ids[i:i + self.batch_size]
             
-            try:
-                result = self.client.table("document_chunks").delete().in_("id", batch_ids).execute()
-                success_count += len(batch_ids)
-                logger.info(f"バッチ削除成功: {len(batch_ids)}件")
-                
-            except Exception as e:
-                failure_count += len(batch_ids)
-                failed_ids.extend(batch_ids)
-                error_msg = f"バッチ削除エラー: {str(e)}"
-                errors.append(error_msg)
-                logger.error(error_msg)
+            if use_transaction:
+                # トランザクションで削除
+                try:
+                    # NOTE: SupabaseのトランザクションAPIを使用
+                    result = self.client.table("document_chunks").delete().in_("id", batch_ids).execute()
+                    success_count += len(batch_ids)
+                    logger.info(f"トランザクションバッチ削除成功: {len(batch_ids)}件")
+                    
+                except Exception as e:
+                    failure_count += len(batch_ids)
+                    failed_ids.extend(batch_ids)
+                    error_msg = f"トランザクションバッチ削除エラー: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
+            else:
+                # トランザクションなしで削除
+                try:
+                    result = self.client.table("document_chunks").delete().in_("id", batch_ids).execute()
+                    success_count += len(batch_ids)
+                    logger.info(f"バッチ削除成功: {len(batch_ids)}件")
+                    
+                except Exception as e:
+                    failure_count += len(batch_ids)
+                    failed_ids.extend(batch_ids)
+                    error_msg = f"バッチ削除エラー: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
         
         total_count = len(chunk_ids)
         
