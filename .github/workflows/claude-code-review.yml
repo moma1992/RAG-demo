@@ -2,14 +2,14 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize]
-    # Run on Python and test file changes
-    paths:
-      - "**/*.py"
-      - "tests/**/*"
-      - "requirements*.txt"
-      - "pyproject.toml"
-      - "CLAUDE.md"
+    types: [opened, synchronize, reopened]
+    # Temporarily removed paths filter for debugging
+    # paths:
+    #   - "**/*.py"
+    #   - "tests/**/*"
+    #   - "requirements*.txt"
+    #   - "pyproject.toml"
+    #   - "CLAUDE.md"
 
 jobs:
   claude-review:
@@ -25,12 +25,17 @@ jobs:
       pull-requests: write
       issues: read
       id-token: write
+      checks: write
+      actions: read
+      statuses: write
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -40,141 +45,47 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
 
+      - name: Debug PR context
+        run: |
+          echo "PR Number: ${{ github.event.number }}"
+          echo "PR Title: ${{ github.event.pull_request.title }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Event Action: ${{ github.event.action }}"
+          
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          PR_NUMBER: ${{ github.event.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
-          BASE_URL: ${{ github.server_url }}/${{ github.repository }}
-          
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
-          
-          # Direct prompt for automated review with Issue requirements verification
+          # Simplified configuration for reliable comment posting
           direct_prompt: |
-            Please perform a comprehensive review of this pull request following our quality assurance workflow:
-
-            ## 🔍 Issue Requirements Verification (CRITICAL)
-            **PR Context Available**:
-            - PR Number: ${{ github.event.number }}
-            - PR Title: "${{ github.event.pull_request.title }}"  
-            - PR Body: "${{ github.event.pull_request.body }}"
-            - Repository: ${{ github.server_url }}/${{ github.repository }}
-
-            **Required Steps**:
-            1. **Extract the linked Issue URL** from the PR body above (look for "Closes #X", "Fixes #X", or similar patterns)
-            2. **Construct the full Issue URL**: {BASE_URL}/issues/{issue_number}
-            3. **Fetch the original Issue content** using WebFetch tool to understand the complete requirements
-            4. **Verify 100% requirements coverage**: Compare the implemented code against ALL requirements listed in the Issue
-            5. **Identify any missing features or functionality** that were specified in the Issue but not implemented
-            6. **Report requirement gaps** with specific details about what is missing
-
-            **If no Issue link found**: Mark as "Request Changes" - all PRs must be linked to an Issue.
-
-            ## 🧪 Code Quality Review
-            **Python-Specific Checks**:
-            - **Type hints**: All functions have proper type annotations
-            - **Docstrings**: All classes/functions have comprehensive docstrings
-            - **Error handling**: Appropriate exception handling with Japanese error messages
-            - **Import organization**: Clean, organized imports following PEP 8
-            - **Async/await usage**: Proper async implementation where applicable
-
-            **Architecture & Design**:
-            - **Pattern compliance**: Follows existing codebase patterns (dataclasses, services structure)
-            - **Dependency injection**: Proper use of dependency injection patterns
-            - **Configuration**: Environment variables and config management
-            - **Logging**: Appropriate logging with structured messages
-            - **Security**: Input validation, SQL injection prevention, secret management
-
-            **Performance & Scalability**:
-            - **Response times**: Meet specified performance criteria (e.g., <500ms for vector search)
-            - **Memory usage**: Efficient memory management for large datasets
-            - **Database queries**: Optimized queries and proper indexing
-            - **Caching**: Appropriate caching strategies where needed
-
-            ## 🎯 Test Coverage Analysis
-            - **Test completeness**: Do tests cover normal, edge, and error cases?
-            - **TDD compliance**: Was the code developed using Red-Green-Refactor cycle?
-            - **Coverage metrics**: Is 80%+ test coverage achieved?
-            - **Mock usage**: Are external dependencies properly mocked?
-
-            ## 📊 Implementation Quality
-            - **Code organization**: Are new classes/functions well-structured?
-            - **Naming conventions**: Do names clearly express intent?
-            - **Code reusability**: Is the code modular and maintainable?
-            - **Integration**: Does it integrate seamlessly with existing codebase?
-
-            ## ⚠️ Critical Issues to Flag
-            - **Requirements mismatch**: ANY deviation from the original Issue requirements
-            - **Breaking changes**: Unintended API or behavior changes
-            - **Security vulnerabilities**: Input validation, injection attacks, etc.
-            - **Performance regressions**: Code that doesn't meet specified performance criteria
-
-            ## 📝 Review Output Format
-            Provide your review in this structured format:
-
-            ### ✅ Issue Requirements Verification
-            - **Issue URL**: [Fetched URL]
-            - **Requirements Coverage**: [X%] (List any missing requirements)
-            - **Implementation Alignment**: [Pass/Fail with details]
-
-            ### 🏗️ Code Quality Assessment
-            - **Architecture**: [Pass/Issues found]
-            - **Documentation**: [Pass/Issues found]  
-            - **Error Handling**: [Pass/Issues found]
-            - **Security**: [Pass/Issues found]
-
-            ### 🧪 Test Quality Assessment
-            - **Coverage**: [X%] (Pass if ≥80%)
-            - **Test Cases**: [Complete/Missing cases]
-            - **TDD Compliance**: [Yes/No]
-
-            ### 🎯 Recommendations
-            - **Required Changes**: [Critical issues that must be fixed]
-            - **Suggested Improvements**: [Nice-to-have enhancements]
-            - **Learning Opportunities**: [Educational feedback]
-
-            ### 🚦 Final Verdict
-            - **Approval Status**: [Approve/Request Changes/Needs Work]
-            - **Reasoning**: [Brief justification for the decision]
-
-            **IMPORTANT**: If ANY Issue requirements are missing or incorrectly implemented, mark as "Request Changes" regardless of code quality.
-          
-          # Optional: Customize review based on file types
-          # direct_prompt: |
-          #   Review this PR focusing on:
-          #   - For TypeScript files: Type safety and proper interface usage
-          #   - For API endpoints: Security, input validation, and error handling
-          #   - For React components: Performance, accessibility, and best practices
-          #   - For tests: Coverage, edge cases, and test quality
-          
-          # Optional: Different prompts for different authors
-          # direct_prompt: |
-          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' && 
-          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
-          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
-          
-          # Enable tools for comprehensive review including Issue verification
-          allowed_tools: |
-            WebFetch,
-            Read,
-            Glob,
-            Grep,
-            Bash(python -m pytest tests/ -v --cov=.),
-            Bash(python -m black --check .),
-            Bash(python -m flake8 .),
-            Bash(python -m mypy .),
-            Bash(python -m bandit -r .)
+            Please review this pull request focusing on:
+            
+            ## Code Quality
+            - Type hints and documentation
+            - Error handling and security
+            - Performance considerations
+            - Test coverage and quality
+            
+            ## Architecture
+            - Follows existing patterns
+            - Proper integration with codebase
+            - Maintainability and readability
+            
+            Please provide specific feedback and suggestions for improvement.
+            If you find any issues, please clearly explain them and suggest solutions.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+          REPOSITORY: ${{ github.repository }}
           
           # Optional: Skip review for certain conditions
           # if: |
