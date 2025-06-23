@@ -11,9 +11,12 @@ LangChain SupabaseVectorStoreを活用した
 import logging
 import time
 import re
-from typing import List, Dict, Any, Optional, Union
+import functools
+from typing import List, Dict, Any, Optional, Union, Callable
 from dataclasses import dataclass, field
 import uuid
+import asyncio
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,10 @@ class SearchQuery:
         
         for pattern in dangerous_patterns:
             if re.search(pattern, self.text):
-                raise ValueError("セキュリティ違反：危険なコンテンツが検出されました")
+                raise SecurityError(
+                    "危険なコンテンツが検出されました",
+                    context={"query_snippet": self.text[:50]}
+                )
 
 
 @dataclass
@@ -91,9 +97,227 @@ class SearchResult:
             raise ValueError("page_number は正の整数である必要があります")
 
 
+class ErrorSeverity(Enum):
+    """エラー重要度分類"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class VectorSearchError(Exception):
-    """ベクトル検索エラー"""
-    pass
+    """ベクトル検索基底エラークラス"""
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "VECTOR_SEARCH_ERROR",
+        severity: ErrorSeverity = ErrorSeverity.MEDIUM,
+        context: Optional[Dict[str, Any]] = None
+    ):
+        self.message = message
+        self.error_code = error_code
+        self.severity = severity
+        self.context = context or {}
+        self.timestamp = time.time()
+        super().__init__(self.message)
+
+
+class DatabaseConnectionError(VectorSearchError):
+    """データベース接続エラー"""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=f"データベース接続エラー: {message}",
+            error_code="DB_CONNECTION_ERROR",
+            severity=ErrorSeverity.HIGH,
+            context=context
+        )
+
+
+class EmbeddingGenerationError(VectorSearchError):
+    """埋め込みベクトル生成エラー"""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=f"埋め込み生成エラー: {message}",
+            error_code="EMBEDDING_ERROR",
+            severity=ErrorSeverity.MEDIUM,
+            context=context
+        )
+
+
+class QueryValidationError(VectorSearchError):
+    """クエリ検証エラー"""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=f"クエリ検証エラー: {message}",
+            error_code="QUERY_VALIDATION_ERROR",
+            severity=ErrorSeverity.LOW,
+            context=context
+        )
+
+
+class PerformanceError(VectorSearchError):
+    """パフォーマンス要件違反エラー"""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=f"パフォーマンス要件違反: {message}",
+            error_code="PERFORMANCE_ERROR",
+            severity=ErrorSeverity.MEDIUM,
+            context=context
+        )
+
+
+class SecurityError(VectorSearchError):
+    """セキュリティ違反エラー"""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=f"セキュリティ違反: {message}",
+            error_code="SECURITY_ERROR",
+            severity=ErrorSeverity.CRITICAL,
+            context=context
+        )
+
+
+def retry_with_exponential_backoff(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    exceptions: tuple = (Exception,)
+) -> Callable:
+    """
+    指数バックオフリトライデコレータ
+    
+    Args:
+        max_retries: 最大リトライ回数
+        base_delay: 基本遅延時間（秒）
+        max_delay: 最大遅延時間（秒）
+        exceptions: リトライ対象外例外のタプル
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    
+                    if attempt == max_retries:
+                        logger.error(
+                            f"最大リトライ回数に達しました: {func.__name__}",
+                            extra={
+                                "attempts": attempt + 1,
+                                "max_retries": max_retries,
+                                "error": str(e)
+                            }
+                        )
+                        raise
+                    
+                    # 指数バックオフ計算
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    
+                    logger.warning(
+                        f"リトライ実行中: {func.__name__} (試行 {attempt + 1}/{max_retries + 1})",
+                        extra={
+                            "attempt": attempt + 1,
+                            "delay": delay,
+                            "error": str(e)
+                        }
+                    )
+                    
+                    time.sleep(delay)
+            
+            # 最後の例外を再発生
+            if last_exception:
+                raise last_exception
+                
+        return wrapper
+    return decorator
+
+
+class StructuredLogger:
+    """構造化ログクラス"""
+    
+    def __init__(self, name: str):
+        self.logger = logging.getLogger(name)
+        
+    def log_search_start(self, query: str, limit: int, threshold: float) -> None:
+        """検索開始ログ"""
+        self.logger.info(
+            "ベクトル検索開始",
+            extra={
+                "event": "search_start",
+                "query_length": len(query),
+                "limit": limit,
+                "threshold": threshold,
+                "timestamp": time.time()
+            }
+        )
+    
+    def log_search_success(
+        self,
+        results_count: int,
+        response_time_ms: float,
+        query: str = ""
+    ) -> None:
+        """検索成功ログ"""
+        self.logger.info(
+            f"ベクトル検索完了: {results_count}件取得",
+            extra={
+                "event": "search_success",
+                "results_count": results_count,
+                "response_time_ms": response_time_ms,
+                "query_length": len(query),
+                "timestamp": time.time()
+            }
+        )
+    
+    def log_error(
+        self,
+        error: VectorSearchError,
+        context: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """エラーログ"""
+        log_level = {
+            ErrorSeverity.LOW: logging.INFO,
+            ErrorSeverity.MEDIUM: logging.WARNING,
+            ErrorSeverity.HIGH: logging.ERROR,
+            ErrorSeverity.CRITICAL: logging.CRITICAL
+        }.get(error.severity, logging.ERROR)
+        
+        self.logger.log(
+            log_level,
+            f"エラー発生: {error.message}",
+            extra={
+                "event": "error",
+                "error_code": error.error_code,
+                "severity": error.severity.value,
+                "error_context": error.context,
+                "additional_context": context or {},
+                "timestamp": error.timestamp
+            },
+            exc_info=True
+        )
+    
+    def log_performance_warning(
+        self,
+        operation: str,
+        response_time_ms: float,
+        threshold_ms: float = 500.0
+    ) -> None:
+        """パフォーマンス警告ログ"""
+        if response_time_ms > threshold_ms:
+            self.logger.warning(
+                f"パフォーマンス警告: {operation}が{response_time_ms:.2f}ms（閾値: {threshold_ms}ms）",
+                extra={
+                    "event": "performance_warning",
+                    "operation": operation,
+                    "response_time_ms": response_time_ms,
+                    "threshold_ms": threshold_ms,
+                    "timestamp": time.time()
+                }
+            )
 
 
 class VectorSearch:
@@ -108,7 +332,10 @@ class VectorSearch:
         self,
         supabase_client: Any,
         embeddings: Any,
-        table_name: str = "document_chunks"
+        table_name: str = "document_chunks",
+        enable_retry: bool = True,
+        max_retries: int = 3,
+        performance_threshold_ms: float = 500.0
     ) -> None:
         """
         初期化
@@ -117,13 +344,56 @@ class VectorSearch:
             supabase_client: Supabaseクライアント
             embeddings: 埋め込みモデル（OpenAI等）
             table_name: 検索対象テーブル名
+            enable_retry: リトライ機能を有効にするか
+            max_retries: 最大リトライ回数
+            performance_threshold_ms: パフォーマンス警告閾値（ミリ秒）
         """
         self.supabase_client = supabase_client
         self.embeddings = embeddings
         self.table_name = table_name
+        self.enable_retry = enable_retry
+        self.max_retries = max_retries
+        self.performance_threshold_ms = performance_threshold_ms
+        self.structured_logger = StructuredLogger(__name__)
+        
+        # 初期化確認
+        self._verify_initialization()
         
         logger.info(f"VectorSearch初期化完了: table={table_name}")
     
+    def _verify_initialization(self) -> None:
+        """初期化検証"""
+        try:
+            if not self.supabase_client:
+                raise DatabaseConnectionError(
+                    "Supabaseクライアントが設定されていません",
+                    context={"table_name": self.table_name}
+                )
+            
+            if not self.embeddings:
+                raise EmbeddingGenerationError(
+                    "埋め込みモデルが設定されていません",
+                    context={"table_name": self.table_name}
+                )
+                
+        except Exception as e:
+            if isinstance(e, VectorSearchError):
+                self.structured_logger.log_error(e)
+                raise
+            else:
+                error = VectorSearchError(
+                    f"初期化エラー: {str(e)}",
+                    error_code="INITIALIZATION_ERROR",
+                    severity=ErrorSeverity.CRITICAL
+                )
+                self.structured_logger.log_error(error)
+                raise error
+    
+    @retry_with_exponential_backoff(
+        max_retries=3,
+        base_delay=1.0,
+        exceptions=(DatabaseConnectionError, EmbeddingGenerationError)
+    )
     def search_similar_chunks(self, query: SearchQuery) -> List[SearchResult]:
         """
         類似チャンク検索
@@ -137,65 +407,215 @@ class VectorSearch:
         Raises:
             VectorSearchError: 検索エラーの場合
         """
+        start_time = time.time()
+        
         try:
-            start_time = time.time()
+            # 検索開始ログ
+            self.structured_logger.log_search_start(
+                query.text, query.limit, query.similarity_threshold
+            )
             
-            # 埋め込みベクトル生成
-            try:
-                query_embedding = self.embeddings.embed_query(query.text)
-            except Exception as e:
-                raise VectorSearchError(f"埋め込みベクトル生成エラー: {str(e)}") from e
+            # クエリ検証
+            self._validate_search_query(query)
             
-            # pgvectorコサイン距離検索
+            # 埋め込みベクトル生成（リトライ対象）
+            query_embedding = self._generate_embedding(query.text)
+            
+            # データベース検索（リトライ対象）
+            search_results = self._execute_vector_search(query, query_embedding)
+            
+            # パフォーマンス計測
+            end_time = time.time()
+            response_time_ms = (end_time - start_time) * 1000
+            
+            # パフォーマンス警告チェック
+            self.structured_logger.log_performance_warning(
+                "search_similar_chunks", response_time_ms, self.performance_threshold_ms
+            )
+            
+            # 成功ログ
+            self.structured_logger.log_search_success(
+                len(search_results), response_time_ms, query.text
+            )
+            
+            return search_results
+            
+        except VectorSearchError as e:
+            # 構造化エラーログ
+            self.structured_logger.log_error(e, {"operation": "search_similar_chunks"})
+            raise
+        except Exception as e:
+            # 予期しないエラーをVectorSearchErrorに変換
+            error = VectorSearchError(
+                f"予期しない検索エラー: {str(e)}",
+                error_code="UNEXPECTED_SEARCH_ERROR",
+                severity=ErrorSeverity.HIGH,
+                context={
+                    "operation": "search_similar_chunks",
+                    "query_text": query.text[:100],  # プライバシー保護のため100文字まで
+                    "limit": query.limit
+                }
+            )
+            self.structured_logger.log_error(error)
+            raise error
+    
+    def _validate_search_query(self, query: SearchQuery) -> None:
+        """検索クエリ詳細検証"""
+        try:
+            # 基本バリデーションは既にSearchQueryで実行済み
+            
+            # 追加セキュリティチェック
+            if self._contains_suspicious_content(query.text):
+                raise SecurityError(
+                    "危険なコンテンツが検出されました",
+                    context={"query_snippet": query.text[:50]}
+                )
+            
+            # リソース制限チェック
+            if len(query.text) > 10000:  # 10KB制限
+                raise QueryValidationError(
+                    "クエリテキストが長すぎます（10KB以下にしてください）",
+                    context={"text_length": len(query.text)}
+                )
+                
+        except VectorSearchError:
+            raise
+        except Exception as e:
+            raise QueryValidationError(
+                f"クエリ検証中にエラーが発生しました: {str(e)}",
+                context={"query_text": query.text[:100]}
+            )
+    
+    def _contains_suspicious_content(self, text: str) -> bool:
+        """疑わしいコンテンツの検出"""
+        # 既存のセキュリティパターンに加えて追加チェック
+        suspicious_patterns = [
+            r"(?i)(union\s+select|drop\s+table|delete\s+from|insert\s+into|update\s+set)",
+            r"(?i)(<\s*script|script\s*>|javascript:|vbscript:)",
+            r"(?i)(exec\s*\(|eval\s*\(|system\s*\()",
+            r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]",  # 制御文字
+            r"(?i)(\.\.\/|\.\.\\)",  # パストラバーサル
+            r"(?i)(file:\/\/|ftp:\/\/)",  # 危険なプロトコル
+        ]
+        
+        for pattern in suspicious_patterns:
+            if re.search(pattern, text):
+                return True
+        return False
+    
+    def _generate_embedding(self, text: str) -> List[float]:
+        """埋め込みベクトル生成（エラーハンドリング付き）"""
+        try:
+            embedding = self.embeddings.embed_query(text)
+            
+            # 埋め込みベクトル検証
+            if not embedding or len(embedding) == 0:
+                raise EmbeddingGenerationError(
+                    "空の埋め込みベクトルが返されました",
+                    context={"text_length": len(text)}
+                )
+            
+            return embedding
+            
+        except Exception as e:
+            if isinstance(e, VectorSearchError):
+                raise
+            
+            # API制限エラー等の分類
+            error_msg = str(e).lower()
+            if "rate limit" in error_msg or "quota" in error_msg:
+                raise EmbeddingGenerationError(
+                    "API利用制限に達しました。しばらく時間をおいてから再度お試しください",
+                    context={"original_error": str(e)}
+                )
+            elif "connection" in error_msg or "timeout" in error_msg:
+                raise EmbeddingGenerationError(
+                    "API接続エラーが発生しました",
+                    context={"original_error": str(e)}
+                )
+            else:
+                raise EmbeddingGenerationError(
+                    f"埋め込み生成中にエラーが発生しました: {str(e)}",
+                    context={"text_length": len(text)}
+                )
+    
+    def _execute_vector_search(
+        self, 
+        query: SearchQuery, 
+        query_embedding: List[float]
+    ) -> List[SearchResult]:
+        """ベクトル検索実行（エラーハンドリング付き）"""
+        try:
             max_distance = 1.0 - query.similarity_threshold
             
-            try:
-                # Supabase RPC関数を使用したベクトル検索
-                result = self.supabase_client.rpc(
-                    "match_documents",
-                    {
-                        "query_embedding": query_embedding,
-                        "match_threshold": max_distance,
-                        "match_count": query.limit,
-                    }
-                ).execute()
-            except Exception as e:
-                raise VectorSearchError(f"データベース検索エラー: {str(e)}") from e
+            # Supabase RPC関数を使用したベクトル検索
+            result = self.supabase_client.rpc(
+                "match_documents",
+                {
+                    "query_embedding": query_embedding,
+                    "match_threshold": max_distance,
+                    "match_count": query.limit,
+                }
+            ).execute()
             
             # 結果変換
             search_results = []
             if result.data:
                 for row in result.data:
-                    similarity_score = 1.0 - row.get("distance", 1.0)
-                    
-                    search_result = SearchResult(
-                        chunk_id=row.get("id", ""),
-                        content=row.get("content", ""),
-                        filename=row.get("filename", ""),
-                        page_number=row.get("page_number", 1),
-                        similarity_score=similarity_score,
-                        metadata={
-                            "section_name": row.get("section_name"),
-                            "chapter_number": row.get("chapter_number"),
-                            "start_pos": row.get("start_pos"),
-                            "end_pos": row.get("end_pos"),
-                            "token_count": row.get("token_count", 0),
-                        } if query.include_metadata else {}
-                    )
-                    search_results.append(search_result)
-            
-            end_time = time.time()
-            response_time = (end_time - start_time) * 1000
-            
-            logger.info(f"類似検索完了: {len(search_results)}件, {response_time:.2f}ms")
+                    try:
+                        similarity_score = 1.0 - row.get("distance", 1.0)
+                        
+                        search_result = SearchResult(
+                            chunk_id=row.get("id", ""),
+                            content=row.get("content", ""),
+                            filename=row.get("filename", ""),
+                            page_number=row.get("page_number", 1),
+                            similarity_score=similarity_score,
+                            metadata={
+                                "section_name": row.get("section_name"),
+                                "chapter_number": row.get("chapter_number"),
+                                "start_pos": row.get("start_pos"),
+                                "end_pos": row.get("end_pos"),
+                                "token_count": row.get("token_count", 0),
+                            } if query.include_metadata else {}
+                        )
+                        search_results.append(search_result)
+                    except Exception as e:
+                        logger.warning(f"結果変換エラー（スキップ）: {str(e)}")
+                        continue
             
             return search_results
             
-        except VectorSearchError:
-            raise
         except Exception as e:
-            logger.error(f"予期しない検索エラー: {str(e)}", exc_info=True)
-            raise VectorSearchError(f"検索処理中にエラーが発生しました: {str(e)}") from e
+            if isinstance(e, VectorSearchError):
+                raise
+            
+            # データベースエラーの分類
+            error_msg = str(e).lower()
+            if "connection" in error_msg or "timeout" in error_msg:
+                raise DatabaseConnectionError(
+                    "データベース接続エラーが発生しました",
+                    context={
+                        "table_name": self.table_name,
+                        "original_error": str(e)
+                    }
+                )
+            elif "permission" in error_msg or "auth" in error_msg:
+                raise DatabaseConnectionError(
+                    "データベース認証エラーが発生しました",
+                    context={
+                        "table_name": self.table_name,
+                        "original_error": str(e)
+                    }
+                )
+            else:
+                raise DatabaseConnectionError(
+                    f"データベース検索中にエラーが発生しました: {str(e)}",
+                    context={
+                        "table_name": self.table_name,
+                        "query_limit": query.limit
+                    }
+                )
     
     def hybrid_search(self, query: SearchQuery) -> List[SearchResult]:
         """
