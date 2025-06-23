@@ -104,9 +104,31 @@ class VectorStore:
         logger.info(f"チャンク保存開始: {len(chunks)}個")
         
         try:
-            # TODO: Supabase実装
+            if not self.client:
+                raise VectorStoreError("Supabaseクライアントが初期化されていません")
+                
             # document_chunksテーブルに一括挿入
-            pass
+            chunk_records = []
+            for chunk in chunks:
+                chunk_record = {
+                    "id": str(uuid.uuid4()),
+                    "document_id": document_id,
+                    "content": chunk.get("content", ""),
+                    "filename": chunk.get("filename", ""),
+                    "page_number": chunk.get("page_number"),
+                    "chapter_number": chunk.get("chapter_number"),
+                    "section_name": chunk.get("section_name"),
+                    "start_pos": chunk.get("start_pos"),
+                    "end_pos": chunk.get("end_pos"),
+                    "embedding": chunk.get("embedding"),
+                    "token_count": chunk.get("token_count", 0)
+                }
+                chunk_records.append(chunk_record)
+            
+            # バッチ挿入実行
+            result = self.client.table("document_chunks").insert(chunk_records).execute()
+            
+            logger.info(f"チャンク保存完了: {len(chunk_records)}個")
             
         except Exception as e:
             logger.error(f"チャンク保存エラー: {str(e)}", exc_info=True)
@@ -135,26 +157,43 @@ class VectorStore:
         logger.info(f"類似検索開始: k={k}, threshold={similarity_threshold}")
         
         try:
-            # TODO: Supabase pgvector実装
-            # SELECT *, embedding <=> %s as similarity
-            # FROM document_chunks
-            # WHERE embedding <=> %s < %s
-            # ORDER BY similarity
-            # LIMIT %s
+            if not self.client:
+                raise VectorStoreError("Supabaseクライアントが初期化されていません")
             
-            # ダミーデータ
-            results = [
-                SearchResult(
-                    content="サンプル検索結果です。",
-                    filename="sample.pdf",
-                    page_number=1,
-                    similarity_score=0.85,
-                    metadata={"section": "はじめに"}
+            # pgvectorのコサイン距離検索を実行
+            # 距離を類似度スコアに変換: similarity = 1 - distance
+            max_distance = 1.0 - similarity_threshold
+            
+            # RPC関数を使用したベクトル検索
+            result = self.client.rpc(
+                'match_documents',
+                {
+                    'query_embedding': query_embedding,
+                    'match_threshold': max_distance,
+                    'match_count': k
+                }
+            ).execute()
+            
+            # 結果をSearchResultオブジェクトに変換
+            search_results = []
+            for row in result.data:
+                search_result = SearchResult(
+                    content=row.get('content', ''),
+                    filename=row.get('filename', ''),
+                    page_number=row.get('page_number', 0),
+                    similarity_score=1.0 - row.get('distance', 1.0),  # 距離を類似度に変換
+                    metadata={
+                        'section_name': row.get('section_name'),
+                        'chapter_number': row.get('chapter_number'),
+                        'start_pos': row.get('start_pos'),
+                        'end_pos': row.get('end_pos'),
+                        'token_count': row.get('token_count', 0)
+                    }
                 )
-            ]
+                search_results.append(search_result)
             
-            logger.info(f"類似検索完了: {len(results)}件")
-            return results
+            logger.info(f"類似検索完了: {len(search_results)}件")
+            return search_results
             
         except Exception as e:
             logger.error(f"類似検索エラー: {str(e)}", exc_info=True)
@@ -173,21 +212,25 @@ class VectorStore:
         logger.info("文書一覧取得開始")
         
         try:
-            # TODO: Supabase実装
-            # SELECT * FROM documents ORDER BY upload_date DESC
+            if not self.client:
+                raise VectorStoreError("Supabaseクライアントが初期化されていません")
             
-            # ダミーデータ
-            documents = [
-                DocumentRecord(
-                    id=str(uuid.uuid4()),
-                    filename="sample.pdf",
-                    original_filename="入社手続きガイド.pdf",
-                    upload_date="2024-01-15T10:00:00Z",
-                    file_size=2400000,
-                    total_pages=25,
-                    processing_status="completed"
+            # documentsテーブルから全件取得
+            result = self.client.table("documents").select("*").order("upload_date", desc=True).execute()
+            
+            # DocumentRecordオブジェクトに変換
+            documents = []
+            for row in result.data:
+                document = DocumentRecord(
+                    id=row.get('id', ''),
+                    filename=row.get('filename', ''),
+                    original_filename=row.get('original_filename', ''),
+                    upload_date=row.get('upload_date', ''),
+                    file_size=row.get('file_size', 0),
+                    total_pages=row.get('total_pages', 0),
+                    processing_status=row.get('processing_status', 'unknown')
                 )
-            ]
+                documents.append(document)
             
             logger.info(f"文書一覧取得完了: {len(documents)}件")
             return documents
