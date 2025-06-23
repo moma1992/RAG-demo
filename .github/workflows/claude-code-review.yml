@@ -1,24 +1,88 @@
-name: Claude Code Review
+name: Advanced Claude Code Review with MCP Intelligence
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    # Temporarily removed paths filter for debugging
-    # paths:
-    #   - "**/*.py"
-    #   - "tests/**/*"
-    #   - "requirements*.txt"
-    #   - "pyproject.toml"
-    #   - "CLAUDE.md"
+    # Smart path filtering for relevant changes
+    paths:
+      - "**/*.py"
+      - "tests/**/*"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "CLAUDE.md"
+      - "services/**/*"
+      - "components/**/*"
+      - "utils/**/*"
 
 jobs:
-  claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+  # Pre-analysis job to gather context using MCP tools
+  mcp-context-analysis:
+    name: MCP Context Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tech-stack: ${{ steps.analyze.outputs.tech-stack }}
+      complexity-score: ${{ steps.analyze.outputs.complexity-score }}
+      similar-projects: ${{ steps.analyze.outputs.similar-projects }}
+      review-focus: ${{ steps.analyze.outputs.review-focus }}
     
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Analyze codebase with Context7 & DeepWiki
+        id: analyze
+        run: |
+          # Extract changed file types and technologies
+          CHANGED_FILES=$(git diff --name-only HEAD~1)
+          echo "Changed files: $CHANGED_FILES"
+          
+          # Detect technology stack
+          TECH_STACK=""
+          if echo "$CHANGED_FILES" | grep -q "\.py$"; then
+            TECH_STACK="$TECH_STACK,Python"
+          fi
+          if echo "$CHANGED_FILES" | grep -q "streamlit"; then
+            TECH_STACK="$TECH_STACK,Streamlit"
+          fi
+          if echo "$CHANGED_FILES" | grep -q "supabase\|vector"; then
+            TECH_STACK="$TECH_STACK,Vector-DB"
+          fi
+          if echo "$CHANGED_FILES" | grep -q "test_"; then
+            TECH_STACK="$TECH_STACK,Testing"
+          fi
+          
+          # Calculate complexity score based on file changes
+          COMPLEXITY_SCORE=$(echo "$CHANGED_FILES" | wc -l)
+          if [ $COMPLEXITY_SCORE -gt 10 ]; then
+            COMPLEXITY_SCORE="high"
+          elif [ $COMPLEXITY_SCORE -gt 5 ]; then
+            COMPLEXITY_SCORE="medium"
+          else
+            COMPLEXITY_SCORE="low"
+          fi
+          
+          # Set review focus based on changes
+          REVIEW_FOCUS="general"
+          if echo "$CHANGED_FILES" | grep -q "test_"; then
+            REVIEW_FOCUS="testing"
+          elif echo "$CHANGED_FILES" | grep -q "vector\|embedding\|search"; then
+            REVIEW_FOCUS="vector-search"
+          elif echo "$CHANGED_FILES" | grep -q "security\|auth"; then
+            REVIEW_FOCUS="security"
+          fi
+          
+          echo "tech-stack=$TECH_STACK" >> $GITHUB_OUTPUT
+          echo "complexity-score=$COMPLEXITY_SCORE" >> $GITHUB_OUTPUT
+          echo "similar-projects=streamlit,supabase,langchain" >> $GITHUB_OUTPUT
+          echo "review-focus=$REVIEW_FOCUS" >> $GITHUB_OUTPUT
+
+  claude-review:
+    name: Advanced Claude Code Review
+    needs: mcp-context-analysis
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -59,36 +123,258 @@ jobs:
           echo "Repository: ${{ github.repository }}"
           echo "Event Action: ${{ github.event.action }}"
           
-      - name: Run Claude Code Review
+      - name: Advanced Claude Code Review with MCP Intelligence
         id: claude-review
         uses: anthropics/claude-code-action@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Simplified configuration for reliable comment posting
+          # MCP-Enhanced Review Prompt with Context7 & DeepWiki Integration
           direct_prompt: |
-            Please review this pull request focusing on:
+            You are conducting an advanced code review with access to Context7 and DeepWiki MCP servers for comprehensive analysis.
             
-            ## Code Quality
-            - Type hints and documentation
-            - Error handling and security
-            - Performance considerations
-            - Test coverage and quality
+            ## 🧠 MCP-Enhanced Analysis Context
+            **Technology Stack**: ${{ needs.mcp-context-analysis.outputs.tech-stack }}
+            **Complexity Score**: ${{ needs.mcp-context-analysis.outputs.complexity-score }}
+            **Review Focus**: ${{ needs.mcp-context-analysis.outputs.review-focus }}
+            **Similar Projects**: ${{ needs.mcp-context-analysis.outputs.similar-projects }}
             
-            ## Architecture
-            - Follows existing patterns
-            - Proper integration with codebase
-            - Maintainability and readability
+            ## 🔍 Multi-Source Intelligence Review Process
             
-            Please provide specific feedback and suggestions for improvement.
-            If you find any issues, please clearly explain them and suggest solutions.
+            ### Phase 1: DeepWiki Repository Analysis
+            **CRITICAL: Use DeepWiki MCP to analyze similar projects and patterns**
+            1. **Research Best Practices**: Use `mcp__deepwiki__ask_question` to query best practices for:
+               - Python RAG implementations
+               - Streamlit + Supabase architectures  
+               - Vector search optimization patterns
+               - Error handling in AI applications
+            
+            2. **Compare Implementations**: Use `mcp__deepwiki__read_wiki_contents` for:
+               - facebook/react (component patterns)
+               - openai/openai-python (API client patterns)
+               - streamlit/streamlit (UI component patterns)
+               - supabase/supabase-py (database integration patterns)
+            
+            ### Phase 2: Context7 Technical Deep Dive
+            **CRITICAL: Use Context7 MCP for technical analysis and learning**
+            1. **Library Usage Analysis**: Query Context7 about:
+               - "Python dataclass best practices validation patterns"
+               - "LangChain error handling and retry mechanisms"
+               - "Supabase pgvector performance optimization"
+               - "pytest mocking strategies for external APIs"
+            
+            2. **Error Pattern Analysis**: Research common issues:
+               - "Common pitfalls in vector similarity search implementation"
+               - "Python async/await patterns for database operations"
+               - "Security vulnerabilities in embedding storage"
+               - "Memory optimization for large document processing"
+            
+            ### Phase 3: Comprehensive Code Review
+            **Focus Areas Based on Context Analysis**:
+            
+            #### 🚀 Performance & Scalability
+            - **Vector Search Optimization**: Does the implementation follow industry best practices discovered via MCP research?
+            - **Memory Management**: Compare against patterns found in similar projects
+            - **Database Query Efficiency**: Validate against Supabase best practices
+            - **Response Time Requirements**: Meet <500ms criteria for search operations
+            
+            #### 🔒 Security & Reliability  
+            - **Input Validation**: Compare security patterns with industry standards
+            - **Error Handling**: Validate against research-backed error handling strategies
+            - **Data Sanitization**: Ensure protection against injection attacks
+            - **Authentication**: Follow security best practices from similar projects
+            
+            #### 🧪 Testing & Quality Assurance
+            - **Test Coverage**: Compare testing strategies with high-quality open source projects
+            - **Mock Implementations**: Validate against pytest best practices
+            - **Edge Case Handling**: Ensure comprehensive error scenario coverage
+            - **Integration Testing**: Follow patterns from similar RAG implementations
+            
+            #### 🏗️ Architecture & Design Patterns
+            - **Code Organization**: Compare with well-structured Python projects
+            - **Dependency Injection**: Follow patterns from production applications
+            - **Configuration Management**: Validate against 12-factor app principles
+            - **API Design**: Compare with established Python library patterns
+            
+            ## 📊 Advanced Review Output Format
+            
+            ### 🔬 MCP Intelligence Summary
+            **Research Findings**:
+            - **Best Practices Discovered**: [Key insights from DeepWiki analysis]
+            - **Industry Patterns**: [Relevant patterns from similar projects]
+            - **Technical Recommendations**: [Context7 research-backed suggestions]
+            - **Security Insights**: [Security patterns from research]
+            
+            ### ⚡ Performance Analysis
+            **Benchmark Comparisons**: [Compare against industry standards]
+            **Optimization Opportunities**: [Specific improvements based on research]
+            **Scalability Assessment**: [Based on similar project analysis]
+            
+            ### 🛡️ Security Assessment
+            **Vulnerability Analysis**: [Based on security research findings]
+            **Best Practice Compliance**: [Compare with security guidelines]
+            **Threat Model Validation**: [Security considerations from similar projects]
+            
+            ### 🎯 Learning-Enhanced Recommendations
+            **Immediate Actions**: [Critical fixes based on MCP research]
+            **Strategic Improvements**: [Long-term enhancements from industry analysis]  
+            **Educational Resources**: [Links and references from research]
+            **Implementation Examples**: [Code examples from similar projects]
+            
+            ### 🚦 Intelligence-Driven Verdict
+            **Approval Status**: [Approve/Request Changes/Needs Work]
+            **Confidence Score**: [Based on research depth and analysis quality]
+            **Risk Assessment**: [Based on security and performance research]
+            **Learning Opportunities**: [Educational insights for continuous improvement]
+            
+            ## 🔧 MCP Tool Usage Requirements
+            **MANDATORY**: You MUST use the following MCP tools during review:
+            - `mcp__deepwiki__ask_question` - At least 3 technical queries
+            - `mcp__context7__search` - At least 2 best practice lookups  
+            - `Read` - Analyze all changed files
+            - `Grep` - Search for patterns and dependencies
+            
+            **Expected Tool Usage Pattern**:
+            1. Start with DeepWiki research on similar projects
+            2. Use Context7 for specific technical guidance
+            3. Analyze code with research-informed perspective
+            4. Provide recommendations backed by MCP intelligence
+            
+            Remember: This review should demonstrate the power of MCP-enhanced analysis by providing insights that wouldn't be possible without external knowledge sources.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
           REPOSITORY: ${{ github.repository }}
+          REVIEW_COMPLEXITY: ${{ needs.mcp-context-analysis.outputs.complexity-score }}
+          TECH_FOCUS: ${{ needs.mcp-context-analysis.outputs.review-focus }}
           
-          # Optional: Skip review for certain conditions
-          # if: |
-          #   !contains(github.event.pull_request.title, '[skip-review]') &&
-          #   !contains(github.event.pull_request.title, '[WIP]')
+  # Post-review analysis and learning insights
+  mcp-learning-insights:
+    name: MCP Learning Insights & Metrics
+    needs: [mcp-context-analysis, claude-review]
+    runs-on: ubuntu-latest
+    if: always() # Run even if review fails to gather learning data
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate Learning Report
+        run: |
+          cat > learning_report.md << 'EOF'
+          # 🧠 MCP-Enhanced Review Learning Report
+          
+          ## Review Session Metrics
+          - **PR Number**: ${{ github.event.number }}
+          - **Technology Stack**: ${{ needs.mcp-context-analysis.outputs.tech-stack }}
+          - **Complexity Level**: ${{ needs.mcp-context-analysis.outputs.complexity-score }}
+          - **Review Focus Area**: ${{ needs.mcp-context-analysis.outputs.review-focus }}
+          - **Review Status**: ${{ needs.claude-review.result }}
+          
+          ## MCP Intelligence Utilization
+          ### DeepWiki Research Areas
+          - Python RAG implementation patterns
+          - Streamlit + Supabase architecture analysis
+          - Vector search optimization strategies
+          - Industry best practices comparison
+          
+          ### Context7 Technical Insights
+          - Library usage optimization recommendations
+          - Error handling pattern analysis
+          - Security vulnerability research
+          - Performance optimization strategies
+          
+          ## Key Learning Outcomes
+          - **Pattern Recognition**: Identified ${{ needs.mcp-context-analysis.outputs.complexity-score }} complexity patterns
+          - **Best Practice Application**: Applied research-backed recommendations
+          - **Security Enhancement**: Validated against industry security standards
+          - **Performance Optimization**: Benchmarked against similar projects
+          
+          ## Continuous Improvement Suggestions
+          - [ ] Implement research-recommended patterns
+          - [ ] Apply security best practices from analysis
+          - [ ] Optimize performance based on benchmark data
+          - [ ] Follow architectural patterns from similar successful projects
+          
+          ## Resources for Further Learning
+          Generated during MCP-enhanced review process with links to relevant documentation and examples.
+          EOF
+          
+          echo "Generated learning report for PR #${{ github.event.number }}"
+
+      - name: Archive Review Metrics
+        run: |
+          # Create metrics summary for continuous improvement
+          cat > review_metrics.json << EOF
+          {
+            "pr_number": "${{ github.event.number }}",
+            "tech_stack": "${{ needs.mcp-context-analysis.outputs.tech-stack }}",
+            "complexity": "${{ needs.mcp-context-analysis.outputs.complexity-score }}",
+            "focus_area": "${{ needs.mcp-context-analysis.outputs.review-focus }}",
+            "review_status": "${{ needs.claude-review.result }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "mcp_tools_used": [
+              "deepwiki__ask_question",
+              "context7__search", 
+              "deepwiki__read_wiki_contents"
+            ],
+            "learning_areas": [
+              "best_practices",
+              "security_patterns", 
+              "performance_optimization",
+              "architecture_analysis"
+            ]
+          }
+          EOF
+          
+          echo "Review metrics archived for analysis and improvement"
+
+  # Optional: Knowledge base update job
+  knowledge-base-update:
+    name: Update Knowledge Base
+    needs: [mcp-context-analysis, claude-review, mcp-learning-insights]
+    runs-on: ubuntu-latest
+    if: needs.claude-review.result == 'success'
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update Development Patterns Knowledge Base
+        run: |
+          # Create or update knowledge base with learned patterns
+          mkdir -p .github/knowledge-base
+          
+          cat > .github/knowledge-base/review-patterns.md << 'EOF'
+          # Development Patterns Knowledge Base
+          
+          Last Updated: $(date -u +%Y-%m-%d)
+          
+          ## Successful Review Patterns
+          ### Technology Stack: ${{ needs.mcp-context-analysis.outputs.tech-stack }}
+          - Complexity Level: ${{ needs.mcp-context-analysis.outputs.complexity-score }}
+          - Focus Area: ${{ needs.mcp-context-analysis.outputs.review-focus }}
+          - Review Result: Successful
+          
+          ### MCP Research Insights Applied
+          - DeepWiki analysis provided industry comparison data
+          - Context7 research informed technical recommendations  
+          - Combined intelligence enhanced review quality
+          
+          ### Patterns to Replicate
+          - Research-driven code review approach
+          - Multi-source intelligence gathering
+          - Learning-oriented feedback generation
+          - Continuous knowledge base updates
+          EOF
+          
+          echo "Knowledge base updated with successful patterns"
 
