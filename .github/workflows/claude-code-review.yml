@@ -3,12 +3,13 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    # Run on Python and test file changes
+    paths:
+      - "**/*.py"
+      - "tests/**/*"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "CLAUDE.md"
 
 jobs:
   claude-review:
@@ -31,26 +32,123 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          BASE_URL: ${{ github.server_url }}/${{ github.repository }}
           
           # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
           # model: "claude-opus-4-20250514"
           
-          # Direct prompt for automated review (no @claude mention needed)
+          # Direct prompt for automated review with Issue requirements verification
           direct_prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
-            
-            Be constructive and helpful in your feedback.
+            Please perform a comprehensive review of this pull request following our quality assurance workflow:
+
+            ## 🔍 Issue Requirements Verification (CRITICAL)
+            **PR Context Available**:
+            - PR Number: ${{ github.event.number }}
+            - PR Title: "${{ github.event.pull_request.title }}"  
+            - PR Body: "${{ github.event.pull_request.body }}"
+            - Repository: ${{ github.server_url }}/${{ github.repository }}
+
+            **Required Steps**:
+            1. **Extract the linked Issue URL** from the PR body above (look for "Closes #X", "Fixes #X", or similar patterns)
+            2. **Construct the full Issue URL**: {BASE_URL}/issues/{issue_number}
+            3. **Fetch the original Issue content** using WebFetch tool to understand the complete requirements
+            4. **Verify 100% requirements coverage**: Compare the implemented code against ALL requirements listed in the Issue
+            5. **Identify any missing features or functionality** that were specified in the Issue but not implemented
+            6. **Report requirement gaps** with specific details about what is missing
+
+            **If no Issue link found**: Mark as "Request Changes" - all PRs must be linked to an Issue.
+
+            ## 🧪 Code Quality Review
+            **Python-Specific Checks**:
+            - **Type hints**: All functions have proper type annotations
+            - **Docstrings**: All classes/functions have comprehensive docstrings
+            - **Error handling**: Appropriate exception handling with Japanese error messages
+            - **Import organization**: Clean, organized imports following PEP 8
+            - **Async/await usage**: Proper async implementation where applicable
+
+            **Architecture & Design**:
+            - **Pattern compliance**: Follows existing codebase patterns (dataclasses, services structure)
+            - **Dependency injection**: Proper use of dependency injection patterns
+            - **Configuration**: Environment variables and config management
+            - **Logging**: Appropriate logging with structured messages
+            - **Security**: Input validation, SQL injection prevention, secret management
+
+            **Performance & Scalability**:
+            - **Response times**: Meet specified performance criteria (e.g., <500ms for vector search)
+            - **Memory usage**: Efficient memory management for large datasets
+            - **Database queries**: Optimized queries and proper indexing
+            - **Caching**: Appropriate caching strategies where needed
+
+            ## 🎯 Test Coverage Analysis
+            - **Test completeness**: Do tests cover normal, edge, and error cases?
+            - **TDD compliance**: Was the code developed using Red-Green-Refactor cycle?
+            - **Coverage metrics**: Is 80%+ test coverage achieved?
+            - **Mock usage**: Are external dependencies properly mocked?
+
+            ## 📊 Implementation Quality
+            - **Code organization**: Are new classes/functions well-structured?
+            - **Naming conventions**: Do names clearly express intent?
+            - **Code reusability**: Is the code modular and maintainable?
+            - **Integration**: Does it integrate seamlessly with existing codebase?
+
+            ## ⚠️ Critical Issues to Flag
+            - **Requirements mismatch**: ANY deviation from the original Issue requirements
+            - **Breaking changes**: Unintended API or behavior changes
+            - **Security vulnerabilities**: Input validation, injection attacks, etc.
+            - **Performance regressions**: Code that doesn't meet specified performance criteria
+
+            ## 📝 Review Output Format
+            Provide your review in this structured format:
+
+            ### ✅ Issue Requirements Verification
+            - **Issue URL**: [Fetched URL]
+            - **Requirements Coverage**: [X%] (List any missing requirements)
+            - **Implementation Alignment**: [Pass/Fail with details]
+
+            ### 🏗️ Code Quality Assessment
+            - **Architecture**: [Pass/Issues found]
+            - **Documentation**: [Pass/Issues found]  
+            - **Error Handling**: [Pass/Issues found]
+            - **Security**: [Pass/Issues found]
+
+            ### 🧪 Test Quality Assessment
+            - **Coverage**: [X%] (Pass if ≥80%)
+            - **Test Cases**: [Complete/Missing cases]
+            - **TDD Compliance**: [Yes/No]
+
+            ### 🎯 Recommendations
+            - **Required Changes**: [Critical issues that must be fixed]
+            - **Suggested Improvements**: [Nice-to-have enhancements]
+            - **Learning Opportunities**: [Educational feedback]
+
+            ### 🚦 Final Verdict
+            - **Approval Status**: [Approve/Request Changes/Needs Work]
+            - **Reasoning**: [Brief justification for the decision]
+
+            **IMPORTANT**: If ANY Issue requirements are missing or incorrectly implemented, mark as "Request Changes" regardless of code quality.
           
           # Optional: Customize review based on file types
           # direct_prompt: |
@@ -66,8 +164,17 @@ jobs:
           #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
           #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
           
-          # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
+          # Enable tools for comprehensive review including Issue verification
+          allowed_tools: |
+            WebFetch,
+            Read,
+            Glob,
+            Grep,
+            Bash(python -m pytest tests/ -v --cov=.),
+            Bash(python -m black --check .),
+            Bash(python -m flake8 .),
+            Bash(python -m mypy .),
+            Bash(python -m bandit -r .)
           
           # Optional: Skip review for certain conditions
           # if: |

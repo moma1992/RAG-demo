@@ -648,3 +648,159 @@ def enhanced_tdd_with_mcp():
 - **コード品質**: 継続的学習とベストプラクティス適用
 - **問題解決**: 包括的情報収集による迅速な課題解決
 - **学習効果**: 実践的な技術スキル向上
+
+## Issue-Driven Development (IDD) 品質保証ワークフロー
+
+### チケット確認の徹底プロセス
+
+Claude Codeでの開発において、要件の見落としを防ぐための必須プロセス。
+
+#### **Stage 1: チケット内容の多角的確認**
+```python
+# 必須実行パターン（開発開始前）
+def comprehensive_issue_analysis():
+    # 1. 初回チケット確認
+    WebFetch(issue_url, "Extract complete requirements and functionality")
+    
+    # 2. 疑問点がある場合の再確認
+    WebFetch(issue_url, "Focus on specific implementation details")
+    
+    # 3. 関連情報の調査
+    WebFetch(related_prs_or_commits, "Check similar implementations")
+    
+    # 4. 既存コードベースの調査
+    Glob("**/*{relevant_pattern}*")
+    Read(related_files)
+```
+
+#### **Stage 2: 要件の構造化・検証**
+```python
+# TodoWriteで要件整理（必須）
+def structure_requirements():
+    todos = [
+        "チケット要件の完全理解・再確認",
+        "実装すべき機能の詳細リスト化",
+        "既存システムとの関係性分析", 
+        "データクラス・API設計",
+        "テストケース設計",
+        "実装優先度の決定"
+    ]
+    TodoWrite(todos)
+```
+
+#### **Stage 3: 実装前最終検証**
+```python
+# 実装開始前チェックリスト
+def pre_implementation_verification():
+    # 要件再確認（必須）
+    WebFetch(issue_url, "Re-verify all requirements before implementation")
+    
+    # アーキテクチャ検証
+    existing_patterns = analyze_codebase_patterns()
+    proposed_design = create_implementation_plan()
+    validate_consistency(existing_patterns, proposed_design)
+    
+    # スコープ確認
+    confirm_implementation_scope()
+```
+
+### PRレビューワークフロー
+
+#### **自動品質チェック（PR作成前必須）**
+```bash
+# コード品質チェック
+python -m black .
+python -m flake8 .
+python -m mypy .
+
+# テスト実行
+python -m pytest tests/ -v --cov=.
+
+# セキュリティチェック
+python -m bandit -r .
+```
+
+#### **PR作成時チェックリスト**
+```markdown
+## PR作成前必須確認事項
+
+### チケット要件充足確認
+- [ ] 元Issueを再読み、全要件をカバーしているか？
+- [ ] 実装した機能がチケットの主要目的と一致しているか？
+- [ ] 見落とした要件や機能はないか？
+
+### 実装品質確認  
+- [ ] 新規クラス・関数が適切に設計されているか？
+- [ ] 既存システムとの整合性は取れているか？
+- [ ] エラーハンドリングは十分か？
+
+### テスト品質確認
+- [ ] 正常系・異常系テストケースは網羅的か？
+- [ ] パフォーマンス要件は満たしているか？
+- [ ] テストカバレッジは80%以上か？
+
+### ドキュメント確認
+- [ ] 型ヒント・ドックストリングは完備されているか？
+- [ ] 複雑な実装にコメントは適切に記載されているか？
+```
+
+#### **Claude Code PR Review Process**
+
+```python
+# PR レビュー用Claude Code Action
+def review_pr_implementation():
+    # 1. チケット要件との照合
+    original_issue = WebFetch(issue_url)
+    implementation_files = [Read(file) for file in changed_files]
+    verify_requirements_coverage(original_issue, implementation_files)
+    
+    # 2. コード品質レビュー
+    run_quality_checks()
+    
+    # 3. テストレビュー
+    test_files = [Read(file) for file in test_files]
+    verify_test_coverage(test_files)
+    
+    # 4. アーキテクチャレビュー
+    verify_design_consistency()
+```
+
+### 品質ゲート設定
+
+#### **必須通過条件**
+1. **要件充足率**: 100%（チケット要件完全実装）
+2. **テストカバレッジ**: 80%以上
+3. **コード品質**: Black、Flake8、mypy全て通過
+4. **セキュリティ**: Bandit脆弱性チェック通過
+5. **パフォーマンス**: 指定要件（例：500ms以下）充足
+
+#### **失敗時の対応フロー**
+```python
+if quality_gate_failed():
+    # 1. 要件再確認
+    re_analyze_requirements()
+    
+    # 2. 実装ギャップ分析
+    gap_analysis = identify_missing_features()
+    
+    # 3. 修正計画策定
+    create_fix_plan(gap_analysis)
+    
+    # 4. 再実装・再テスト
+    implement_fixes()
+    re_run_quality_checks()
+```
+
+### 防止策の継続改善
+
+#### **定期的なプロセス見直し**
+- 月次でのワークフロー効果性レビュー
+- 見落とし事例の原因分析・対策策定
+- Claude Code使用パターンの最適化
+
+#### **チーム学習の促進**
+- 要件見落とし事例の共有
+- 効果的なClaude Code活用パターンの文書化
+- 品質向上のベストプラクティス蓄積
+
+このワークフローにより、チケット要件の見落としやPR品質問題を大幅に削減し、Claude Codeを活用した高品質な開発を実現します。
