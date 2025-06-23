@@ -39,6 +39,10 @@ OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_claude_api_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Supabase MCP設定（Claude Code連携用）
+SUPABASE_PROJECT_REF=your_project_ref
+SUPABASE_ACCESS_TOKEN=your_personal_access_token
 ```
 
 ## Technology Stack
@@ -489,3 +493,158 @@ def mock_external_apis():
 ```
 
 This comprehensive live coding strategy ensures high-quality development while maintaining the efficiency of natural language-driven coding with Claude Code Action.
+
+## MCP Integration Strategy
+
+### Python Development Focused Framework
+
+Claude Codeでの開発効率を最大化するため、3つのMCPサーバーを戦略的に活用します。
+
+#### **Triple MCP Framework**
+- **DeepWiki MCP**: Python実装例・アーキテクチャパターン調査
+- **Supabase MCP**: データベース管理・リアルタイム監視  
+- **Context7 MCP**: Pythonライブラリ調査・エラー解決・ベストプラクティス
+
+### Python Development Phase Integration
+
+| フェーズ | DeepWiki MCP | Supabase MCP | Context7 MCP | 主要用途 |
+|---------|-------------|-------------|-------------|---------|
+| **ライブラリ選定** | Python RAGプロジェクト調査 | - | PyMuPDF vs PyPDF2比較 | 最適ライブラリ選択 |
+| **実装設計** | Pythonアーキテクチャパターン | スキーマ設計検証 | spaCy/LangChain設計パターン | Pythonic設計 |
+| **コーディング** | Python実装例参照 | リアルタイムDB監視 | ライブラリAPI詳細調査 | 実装品質向上 |
+| **エラー解決** | 類似エラー事例調査 | データ整合性確認 | Python例外処理ベストプラクティス | 迅速問題解決 |
+| **最適化** | Pythonパフォーマンス事例 | クエリ最適化監視 | asyncio/マルチプロセス最適化 | パフォーマンス向上 |
+
+### Python-Specific Use Cases
+
+#### **PDF Processing Libraries**
+```python
+# Context7での調査例
+# "PyMuPDF vs PyPDF2 vs pdfplumber performance comparison"
+# "spaCy Japanese text processing best practices"
+# "LangChain document chunking strategies"
+```
+
+#### **Error Resolution Pattern**
+```python
+# 1. Python例外発生時の対応フロー
+try:
+    result = process_pdf_with_pymupdf(file_path)
+except Exception as e:
+    # Context7: "PyMuPDF common errors and solutions"
+    # DeepWiki: 類似エラー実装例調査
+    # Supabase: DB接続状態確認
+    handle_error_with_mcp_insights(e)
+```
+
+#### **Library Selection Workflow**
+```python
+# 開発フェーズでの情報収集戦略
+def select_best_library():
+    # 1. Context7: ライブラリ比較・性能調査
+    # 2. DeepWiki: 実際のプロジェクトでの使用例
+    # 3. Supabase: 実装後のパフォーマンス監視
+    pass
+```
+
+### MCP Server Configuration
+
+#### 設定ファイル (.claude/mcp.json)
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://mcp.context7.com/sse"]
+    },
+    "deepwiki": {
+      "command": "npx", 
+      "args": ["mcp-remote", "https://mcp.deepwiki.com/sse"]
+    },
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--read-only",
+        "--project-ref=${SUPABASE_PROJECT_REF}"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+#### 必要な環境変数
+```bash
+# Supabase MCP設定
+SUPABASE_PROJECT_REF=your_project_ref
+SUPABASE_ACCESS_TOKEN=your_personal_access_token
+```
+
+#### セットアップ手順
+1. Supabaseダッシュボードでプロジェクト参照IDを確認
+2. 個人アクセストークンを生成（Settings > Access Tokens）
+3. `.env`ファイルに環境変数を設定
+4. Claude Code再起動でMCPサーバー接続確認
+
+### Python Development Workflows
+
+#### **情報収集最適化パターン**
+```python
+# 1. ライブラリ選定時
+# Context7: "streamlit file upload best practices"
+# DeepWiki: Streamlit + PDF処理の実装例調査
+
+# 2. 実装時
+# Context7: "spaCy Japanese tokenization optimization"  
+# Supabase: 実装したテーブル構造の確認
+
+# 3. エラー解決時
+# Context7: "LangChain embeddings error handling"
+# DeepWiki: 類似エラーの解決事例調査
+# Supabase: データベース接続・クエリ実行状況確認
+```
+
+#### **品質向上サイクル**
+```python
+# TDD + MCP統合サイクル
+def enhanced_tdd_with_mcp():
+    # Red: 失敗テスト作成
+    # Context7: テストパターン・ベストプラクティス調査
+    
+    # Green: 最小実装
+    # DeepWiki: 実装例参照
+    # Supabase: DB操作確認
+    
+    # Refactor: 品質向上
+    # Context7: リファクタリングパターン調査
+    pass
+```
+
+### 利用可能な機能
+
+#### **DeepWiki MCP**
+- GitHubリポジトリの実装例調査
+- Python RAGプロジェクトのアーキテクチャ学習
+- 類似エラー・問題の解決事例収集
+
+#### **Context7 MCP**  
+- Pythonライブラリの詳細調査・比較
+- エラーメッセージの解析・解決策提案
+- Pythonベストプラクティス・設計パターン学習
+
+#### **Supabase MCP**
+- データベース構造の確認・分析
+- テーブルデータの読み取り（読み取り専用）
+- SQLクエリの実行（SELECT文のみ）
+- リアルタイムDB監視・パフォーマンス分析
+
+### 期待される効果
+
+- **開発効率**: 40-60%向上（技術調査時間短縮）
+- **コード品質**: 継続的学習とベストプラクティス適用
+- **問題解決**: 包括的情報収集による迅速な課題解決
+- **学習効果**: 実践的な技術スキル向上
