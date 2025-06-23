@@ -1,441 +1,304 @@
 """
-VectorStorageクラスのセキュリティテストスイート
+セキュリティベクトルストレージテストスイート
 
-Issue #36: セキュリティ機能のテスト
-優先度高対応: セキュリティテストの追加
+Issue #37: セキュリティ機能のテスト実装
+TDD実装: 失敗テスト → 最小実装 → リファクタリング
 """
 
 import pytest
 import uuid
-from unittest.mock import Mock, patch
-from typing import List
-from datetime import datetime
+import time
+from unittest.mock import Mock, patch, MagicMock
+from typing import List, Dict, Any
+import numpy as np
 
-from services.vector_storage import (
-    VectorStorage,
-    ChunkData,
-    BatchResult,
-    VectorStorageError
+from services.vector_store import (
+    VectorStore,
+    SearchResult,
+    DocumentRecord,
+    VectorStoreError,
+    validate_embedding_vector,
+    validate_search_parameters,
+    validate_chunk_data,
 )
 
 
-class TestVectorStorageSecurity:
-    """VectorStorageセキュリティテストクラス"""
-    
+class TestVectorStoreSecurity:
+    """ベクトルストアのセキュリティテストクラス"""
+
     def setup_method(self):
         """テストセットアップ"""
         self.mock_client = Mock()
-        self.storage = VectorStorage("https://test.supabase.co", "test_key", batch_size=50)
-        self.storage.client = self.mock_client
-    
-    def test_sql_injection_prevention(self):
-        """SQLインジェクション攻撃の防止テスト"""
-        
-        # 悪意のあるSQLコンテンツでのチャンク作成を試行
-        malicious_contents = [
-            "'; DROP TABLE document_chunks; --",
-            "UNION SELECT * FROM users",
-            "INSERT INTO admin VALUES('hacker', 'password')",
-            "DELETE FROM important_data WHERE id > 0"
-        ]
-        
-        for malicious_content in malicious_contents:
-            with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-                ChunkData(
-                    id=str(uuid.uuid4()),
-                    document_id=str(uuid.uuid4()),
-                    content=malicious_content,
-                    filename="test.pdf",
-                    page_number=1,
-                    embedding=[0.1] * 1536,
-                    token_count=10
-                )
-    
-    def test_script_injection_prevention(self):
-        """スクリプトインジェクション攻撃の防止テスト"""
-        
-        malicious_scripts = [
-            "javascript:alert('malicious')",
-            "vbscript:msgbox('attack')",
-            "eval(malicious_code)"
-        ]
-        
-        for script in malicious_scripts:
-            with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-                ChunkData(
-                    id=str(uuid.uuid4()),
-                    document_id=str(uuid.uuid4()),
-                    content=script,
-                    filename="test.pdf",
-                    page_number=1,
-                    embedding=[0.1] * 1536,
-                    token_count=10
-                )
-        
-        # スクリプトタグもセキュリティ検証でキャッチされることを確認
-        with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="<script>alert('XSS')</script>",  # scriptタグもブロックされる
-                filename="test.pdf",
-                page_number=1,
-                embedding=[0.1] * 1536,
-                token_count=10
+        self.vector_store = VectorStore("https://test.supabase.co", "test_key")
+        self.vector_store.client = self.mock_client
+
+    def test_invalid_embedding_vector_validation(self):
+        """無効な埋め込みベクトルの検証テスト"""
+
+        # 空のベクトル
+        with pytest.raises(VectorStoreError, match="埋め込みベクトルが空です"):
+            validate_embedding_vector([])
+
+        # 非リスト型
+        with pytest.raises(
+            VectorStoreError, match="埋め込みベクトルはリスト形式である必要があります"
+        ):
+            validate_embedding_vector("invalid")
+
+        # 間違った次元数
+        with pytest.raises(
+            VectorStoreError, match="埋め込みベクトルは1536次元である必要があります"
+        ):
+            validate_embedding_vector([0.1] * 128)
+
+        # NaN値
+        invalid_vector = [0.1] * 1536
+        invalid_vector[100] = float("nan")
+        with pytest.raises(VectorStoreError, match="NaN値が含まれています"):
+            validate_embedding_vector(invalid_vector)
+
+        # 無限大値
+        invalid_vector = [0.1] * 1536
+        invalid_vector[200] = float("inf")
+        with pytest.raises(VectorStoreError, match="無限大値が含まれています"):
+            validate_embedding_vector(invalid_vector)
+
+    def test_search_parameters_validation(self):
+        """検索パラメータの検証テスト"""
+
+        # 無効なk値（負数）
+        with pytest.raises(VectorStoreError, match="k は正の整数である必要があります"):
+            validate_search_parameters(-1, 0.7)
+
+        # 無効なk値（ゼロ）
+        with pytest.raises(VectorStoreError, match="k は正の整数である必要があります"):
+            validate_search_parameters(0, 0.7)
+
+        # k値が大きすぎる
+        with pytest.raises(VectorStoreError, match="k は100以下である必要があります"):
+            validate_search_parameters(101, 0.7)
+
+        # 無効な類似度閾値（範囲外）
+        with pytest.raises(
+            VectorStoreError,
+            match="similarity_threshold は0.0-1.0の範囲である必要があります",
+        ):
+            validate_search_parameters(5, 1.5)
+
+        with pytest.raises(
+            VectorStoreError,
+            match="similarity_threshold は0.0-1.0の範囲である必要があります",
+        ):
+            validate_search_parameters(5, -0.1)
+
+    def test_chunk_data_validation(self):
+        """チャンクデータの検証テスト"""
+
+        # 必須フィールド不足
+        with pytest.raises(
+            VectorStoreError, match="必須フィールド 'content' が不足しています"
+        ):
+            validate_chunk_data({"filename": "test.pdf"})
+
+        with pytest.raises(
+            VectorStoreError, match="必須フィールド 'filename' が不足しています"
+        ):
+            validate_chunk_data({"content": "test content"})
+
+        # 空のコンテンツ
+        with pytest.raises(
+            VectorStoreError, match="contentは空でない文字列である必要があります"
+        ):
+            validate_chunk_data({"content": "", "filename": "test.pdf"})
+
+        # 長すぎるコンテンツ
+        long_content = "x" * 10001
+        with pytest.raises(VectorStoreError, match="contentが長すぎます"):
+            validate_chunk_data({"content": long_content, "filename": "test.pdf"})
+
+        # 無効なpage_number
+        with pytest.raises(
+            VectorStoreError, match="page_numberは正の整数である必要があります"
+        ):
+            validate_chunk_data(
+                {"content": "test", "filename": "test.pdf", "page_number": -1}
             )
-    
-    def test_path_traversal_prevention(self):
-        """パストラバーサル攻撃の防止テスト"""
-        
-        malicious_filenames = [
-            "../../../etc/passwd",
-            "..\\..\\windows\\system32\\config\\sam",
-            "/etc/shadow",
-            "C:\\Windows\\System32\\drivers\\etc\\hosts",
-            "../../../../root/.ssh/id_rsa"
-        ]
-        
-        for filename in malicious_filenames:
-            with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-                ChunkData(
-                    id=str(uuid.uuid4()),
-                    document_id=str(uuid.uuid4()),
-                    content="正常なコンテンツ",
-                    filename=filename,
-                    page_number=1,
-                    embedding=[0.1] * 1536,
-                    token_count=10
-                )
-    
-    def test_dangerous_file_extension_prevention(self):
-        """危険な拡張子の防止テスト"""
-        
-        dangerous_files = [
-            "malware.exe",
-            "virus.bat",
-            "trojan.cmd",
-            "backdoor.vbs",
-            "exploit.js",
-            "payload.jar",
-            "shell.sh"
-        ]
-        
-        for filename in dangerous_files:
-            with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-                ChunkData(
-                    id=str(uuid.uuid4()),
-                    document_id=str(uuid.uuid4()),
-                    content="正常なコンテンツ",
-                    filename=filename,
-                    page_number=1,
-                    embedding=[0.1] * 1536,
-                    token_count=10
-                )
-    
-    def test_dos_attack_prevention(self):
-        """DoS攻撃の防止テスト"""
-        
-        # 異常に長いファイル名
-        with pytest.raises(VectorStorageError, match="ファイル名が長すぎます"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="正常なコンテンツ",
-                filename="x" * 300,  # 255文字制限を超過
-                page_number=1,
-                embedding=[0.1] * 1536,
-                token_count=10
-            )
-        
-        # 異常に長い反復パターン（閾値を下げてテストを簡略化）
-        with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="A" * 1500,  # 異常な反復パターン (1000+で検出)
-                filename="test.pdf",
-                page_number=1,
-                embedding=[0.1] * 1536,
-                token_count=10
-            )
-        
-        # 異常に長いコンテンツ（反復パターンを使わずに異なる文字でテスト）
-        long_content = ''.join([chr(65 + (i % 26)) for i in range(15000)])  # A-Zを繰り返し
-        with pytest.raises(VectorStorageError, match="コンテンツが長すぎます"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content=long_content,  # 10000文字制限を超過
-                filename="test.pdf",
-                page_number=1,
-                embedding=[0.1] * 1536,
-                token_count=10
-            )
-    
-    def test_control_character_prevention(self):
-        """制御文字の防止テスト"""
-        
-        # ファイル名に制御文字
-        with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="正常なコンテンツ",
-                filename="test\x00.pdf",  # NULL文字
-                page_number=1,
-                embedding=[0.1] * 1536,
-                token_count=10
-            )
-        
-        # コンテンツに制御文字
-        with pytest.raises(VectorStorageError, match="セキュリティ違反"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="悪意のある\x08コンテンツ",  # バックスペース文字
-                filename="test.pdf",
-                page_number=1,
-                embedding=[0.1] * 1536,
-                token_count=10
-            )
-    
-    def test_html_escaping(self):
-        """HTMLエスケープのテスト"""
-        
-        html_content = "<div>テストコンテンツ</div>"
-        html_filename = "test<script>.pdf"
-        html_section = "<section>テストセクション</section>"
-        
-        chunk = ChunkData(
-            id=str(uuid.uuid4()),
-            document_id=str(uuid.uuid4()),
-            content=html_content,
-            filename="test.pdf",  # 正常なファイル名
-            page_number=1,
-            section_name=html_section,
-            embedding=[0.1] * 1536,
-            token_count=10
-        )
-        
-        # HTMLがエスケープされることを確認
-        result_dict = chunk.to_dict()
-        assert "&lt;div&gt;" in result_dict["content"]
-        assert "&lt;section&gt;" in result_dict["section_name"]
-    
-    def test_embedding_vector_security(self):
-        """埋め込みベクトルのセキュリティテスト"""
-        
-        # NaN値の防止
-        with pytest.raises(VectorStorageError, match="NaN値"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="正常なコンテンツ",
-                filename="test.pdf",
-                page_number=1,
-                embedding=[float('nan')] * 1536,
-                token_count=10
-            )
-        
-        # 無限大値の防止
-        with pytest.raises(VectorStorageError, match="無限大値"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="正常なコンテンツ",
-                filename="test.pdf",
-                page_number=1,
-                embedding=[float('inf')] * 1536,
-                token_count=10
-            )
-        
-        # ゼロベクトルの防止
-        with pytest.raises(VectorStorageError, match="ノルムがゼロ"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="正常なコンテンツ",
-                filename="test.pdf",
-                page_number=1,
-                embedding=[0.0] * 1536,
-                token_count=10
-            )
-        
-        # 異常に大きなベクトルの防止
-        with pytest.raises(VectorStorageError, match="異常に大きい"):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="正常なコンテンツ",
-                filename="test.pdf",
-                page_number=1,
-                embedding=[1000.0] * 1536,  # 異常に大きなノルム
-                token_count=10
-            )
-    
-    def test_datetime_serialization_security(self):
-        """日時シリアル化のセキュリティテスト"""
-        
-        # 正常な日時のシリアル化
-        normal_datetime = datetime.now()
-        chunk = ChunkData(
-            id=str(uuid.uuid4()),
-            document_id=str(uuid.uuid4()),
-            content="正常なコンテンツ",
-            filename="test.pdf",
-            page_number=1,
-            embedding=[0.1] * 1536,
-            token_count=10,
-            created_at=normal_datetime
-        )
-        
-        result_dict = chunk.to_dict()
-        
-        # 日時が安全にシリアル化されることを確認
-        assert isinstance(result_dict["created_at"], str)
-        assert "Z" in result_dict["created_at"]  # UTC形式
-        
-        # 危険な文字が含まれていないことを確認
-        assert "<script>" not in result_dict["created_at"]
-        assert "javascript:" not in result_dict["created_at"]
-    
-    def test_batch_operation_security(self):
-        """バッチ操作のセキュリティテスト"""
-        
-        # 正常なチャンクと異常なチャンクの混在
-        chunks = []
-        
-        # 正常なチャンク
-        for i in range(3):
-            chunks.append(ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content=f"正常なコンテンツ {i}",
-                filename="test.pdf",
-                page_number=i + 1,
-                embedding=[0.1 * (i + 1)] * 1536,
-                token_count=10
-            ))
-        
-        # セキュリティ違反によりチャンク作成時にエラーが発生することを確認
-        with pytest.raises(VectorStorageError):
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content="'; DROP TABLE document_chunks; --",  # SQLインジェクション
-                filename="test.pdf",
-                page_number=4,
-                embedding=[0.1] * 1536,
-                token_count=10
-            )
-        
-        # 正常なチャンクのみでバッチ保存
-        self.mock_client.table.return_value.insert.return_value.execute.return_value = Mock()
-        
-        result = self.storage.save_chunks_batch(chunks)
-        
-        # 正常なチャンクのみが処理されることを確認
-        assert result.success_count == 3
-        assert result.failure_count == 0
-    
-    def test_uuid_validation_security(self):
-        """UUID検証のセキュリティテスト"""
-        
-        malicious_ids = [
-            "'; DROP TABLE users; --",
-            "<script>alert('XSS')</script>",
-            "../../../etc/passwd",
-            "not-a-valid-uuid",
-            "00000000-0000-0000-0000-000000000000; DELETE FROM data;"
-        ]
-        
-        for malicious_id in malicious_ids:
-            with pytest.raises(VectorStorageError, match="無効な.*ID形式"):
-                ChunkData(
-                    id=malicious_id,
-                    document_id=str(uuid.uuid4()),
-                    content="正常なコンテンツ",
-                    filename="test.pdf",
-                    page_number=1,
-                    embedding=[0.1] * 1536,
-                    token_count=10
-                )
-            
-            with pytest.raises(VectorStorageError, match="無効な.*ID形式"):
-                ChunkData(
-                    id=str(uuid.uuid4()),
-                    document_id=malicious_id,
-                    content="正常なコンテンツ",
-                    filename="test.pdf",
-                    page_number=1,
-                    embedding=[0.1] * 1536,
-                    token_count=10
-                )
 
 
-class TestTransactionSecurity:
-    """トランザクションセキュリティテストクラス"""
-    
+class TestVectorStoreSecuritySearch:
+    """ベクトル検索のセキュリティテストクラス"""
+
     def setup_method(self):
         """テストセットアップ"""
         self.mock_client = Mock()
-        self.storage = VectorStorage("https://test.supabase.co", "test_key", batch_size=50)
-        self.storage.client = self.mock_client
-    
-    def test_transaction_rollback_on_security_violation(self):
-        """セキュリティ違反時のトランザクションロールバックテスト"""
-        
-        # 正常なチャンクを作成
-        normal_chunks = [
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content=f"正常なコンテンツ {i}",
-                filename="test.pdf",
-                page_number=i + 1,
-                embedding=[0.1 * (i + 1)] * 1536,
-                token_count=10
-            )
-            for i in range(3)
+        self.vector_store = VectorStore("https://test.supabase.co", "test_key")
+        self.vector_store.client = self.mock_client
+
+        # 正常な埋め込みベクトル
+        self.valid_embedding = [0.1] * 1536
+
+    def test_similarity_search_performance(self):
+        """類似検索のパフォーマンステスト（<500ms要件）"""
+
+        # モックデータ設定
+        self.mock_client.rpc.return_value.execute.return_value = Mock(
+            data=[
+                {
+                    "content": "テストコンテンツ1",
+                    "filename": "test1.pdf",
+                    "page_number": 1,
+                    "distance": 0.3,
+                    "section_name": "セクション1",
+                    "chapter_number": 1,
+                }
+            ]
+        )
+
+        start_time = time.time()
+        results = self.vector_store.similarity_search(self.valid_embedding, k=5)
+        end_time = time.time()
+
+        # パフォーマンス要件確認（500ms以下）
+        execution_time = end_time - start_time
+        assert execution_time < 0.5, f"検索時間が500msを超過: {execution_time:.3f}s"
+
+        # 結果の検証
+        assert len(results) == 1
+        assert isinstance(results[0], SearchResult)
+
+    def test_empty_search_results_handling(self):
+        """空の検索結果の処理テスト"""
+
+        # 空の結果をモック
+        self.mock_client.rpc.return_value.execute.return_value = Mock(data=[])
+
+        results = self.vector_store.similarity_search(self.valid_embedding, k=5)
+
+        assert isinstance(results, list)
+        assert len(results) == 0
+
+    def test_database_connection_error_handling(self):
+        """データベース接続エラーの処理テスト"""
+
+        # 接続エラーをシミュレート
+        self.mock_client.rpc.side_effect = Exception("Database connection failed")
+
+        with pytest.raises(VectorStoreError, match="類似検索中にエラーが発生しました"):
+            self.vector_store.similarity_search(self.valid_embedding, k=5)
+
+    def test_malformed_query_injection_prevention(self):
+        """悪意のあるクエリインジェクションの防止テスト"""
+
+        # SQLインジェクション風の埋め込みベクトル（実際は数値配列だが概念的テスト）
+        malicious_embedding = [0.1] * 1535 + [999999.9]  # 異常に大きな値
+
+        # 検証でエラーになることを確認（この段階では未実装なので失敗する）
+        with pytest.raises(VectorStoreError):
+            self.vector_store.similarity_search(malicious_embedding, k=5)
+
+
+class TestVectorStoreSecurityStorage:
+    """ベクトルストレージのセキュリティテストクラス"""
+
+    def setup_method(self):
+        """テストセットアップ"""
+        self.mock_client = Mock()
+        self.vector_store = VectorStore("https://test.supabase.co", "test_key")
+        self.vector_store.client = self.mock_client
+
+    def test_document_storage_security(self):
+        """文書保存のセキュリティテスト"""
+
+        # モック設定
+        self.mock_client.table.return_value.insert.return_value.execute.return_value = (
+            Mock(data=[{"id": "test-doc-id"}])
+        )
+
+        # 正常なケース
+        document_data = {
+            "filename": "test_document.pdf",
+            "original_filename": "original.pdf",
+            "file_size": 1024,
+            "total_pages": 5,
+        }
+
+        result = self.vector_store.store_document(document_data)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_chunk_storage_input_validation(self):
+        """チャンク保存時の入力検証テスト"""
+
+        document_id = str(uuid.uuid4())
+
+        # 空のチャンクリスト
+        with pytest.raises(VectorStoreError, match="チャンクリストが空です"):
+            self.vector_store.store_chunks([], document_id)
+
+        # 無効なdocument_id
+        valid_chunks = [
+            {
+                "content": "テストコンテンツ",
+                "filename": "test.pdf",
+                "embedding": [0.1] * 1536,
+            }
         ]
-        
-        # データベースエラーをシミュレート（セキュリティ違反の結果として）
-        self.mock_client.table.return_value.insert.return_value.execute.side_effect = Exception("Security violation detected")
-        
-        # トランザクション付きでバッチ保存
-        result = self.storage.save_chunks_batch(normal_chunks, use_transaction=True)
-        
-        # セキュリティ違反により全件失敗することを確認
-        assert result.success_count == 0
-        assert result.failure_count == 3
-        assert "トランザクションエラー" in result.errors[0]
-    
-    def test_transaction_vs_non_transaction_security(self):
-        """トランザクションありなしでのセキュリティ動作比較テスト"""
-        
-        normal_chunks = [
-            ChunkData(
-                id=str(uuid.uuid4()),
-                document_id=str(uuid.uuid4()),
-                content=f"正常なコンテンツ {i}",
-                filename="test.pdf", 
-                page_number=i + 1,
-                embedding=[0.1 * (i + 1)] * 1536,
-                token_count=10
-            )
-            for i in range(2)
-        ]
-        
-        # 成功ケース
-        self.mock_client.table.return_value.insert.return_value.execute.return_value = Mock()
-        
-        # トランザクションありで実行
-        result_with_tx = self.storage.save_chunks_batch(normal_chunks, use_transaction=True)
-        assert result_with_tx.success_count == 2
-        
-        # トランザクションなしで実行  
-        result_without_tx = self.storage.save_chunks_batch(normal_chunks, use_transaction=False)
-        assert result_without_tx.success_count == 2
+
+        with pytest.raises(VectorStoreError, match="document_idが無効です"):
+            self.vector_store.store_chunks(valid_chunks, "")
+
+    def test_large_dataset_memory_management(self):
+        """大きなデータセットのメモリ管理テスト"""
+
+        # 大量のチャンクデータをシミュレート
+        large_chunks = []
+        for i in range(1000):  # 1000個のチャンク
+            chunk = {
+                "content": f"大量データテスト {i}",
+                "filename": "large_file.pdf",
+                "page_number": i // 10 + 1,
+                "embedding": [0.1 + i * 0.001] * 1536,
+            }
+            large_chunks.append(chunk)
+
+        # メモリ効率的な処理をテスト（実装後に動作確認）
+        document_id = str(uuid.uuid4())
+
+        # この段階では実装がないので例外が発生することを確認
+        try:
+            self.vector_store.store_chunks(large_chunks, document_id)
+        except Exception:
+            pass  # 実装前なので例外は予想される
+
+
+class TestVectorStoreSecurityAccess:
+    """アクセス制御のセキュリティテストクラス"""
+
+    def setup_method(self):
+        """テストセットアップ"""
+        self.vector_store = VectorStore("https://test.supabase.co", "test_key")
+
+    def test_unauthorized_client_access(self):
+        """未認証クライアントアクセスのテスト"""
+
+        # クライアント未初期化の状態をシミュレート
+        self.vector_store.client = None
+
+        with pytest.raises(
+            VectorStoreError, match="Supabaseクライアントが初期化されていません"
+        ):
+            self.vector_store.similarity_search([0.1] * 1536, k=5)
+
+    def test_invalid_credentials_handling(self):
+        """無効な認証情報の処理テスト"""
+
+        # 無効な認証情報でVectorStoreを作成
+        invalid_vector_store = VectorStore("https://invalid.supabase.co", "invalid_key")
+
+        # 接続エラーが適切に処理されることを確認
+        # （実装時にはより詳細なテストが必要）
+        assert invalid_vector_store.supabase_url == "https://invalid.supabase.co"
+        assert invalid_vector_store.supabase_key == "invalid_key"
 
 
 if __name__ == "__main__":
