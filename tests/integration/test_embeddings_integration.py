@@ -354,6 +354,130 @@ class TestErrorRecovery:
                 service.generate_embedding(invalid_input)
 
 
+class TestSupabaseIntegrationFlow:
+    """Supabase統合フロー全体テスト（Issue #48）"""
+    
+    @patch('services.embeddings.VectorStore')
+    @patch('openai.OpenAI')
+    def test_end_to_end_supabase_storage(self, mock_openai, mock_vector_store):
+        """統合: エンドツーエンドSupabase埋め込み保存フロー"""
+        # OpenAI APIレスポンスモック
+        mock_response = Mock()
+        mock_response.data = [
+            Mock(embedding=[0.1] * 1536),
+            Mock(embedding=[0.2] * 1536),
+            Mock(embedding=[0.3] * 1536)
+        ]
+        mock_response.usage.total_tokens = 30
+        
+        mock_client = mock_openai.return_value
+        mock_client.embeddings.create.return_value = mock_response
+        
+        # VectorStoreモック
+        mock_store_instance = mock_vector_store.return_value
+        mock_store_instance.store_chunks.return_value = None
+        
+        service = EmbeddingService("sk-test123456789")
+        
+        # エンドツーエンドフローテスト
+        test_texts = [
+            "新入社員向け社内文書検索システム",
+            "OpenAI text-embedding-3-smallを使用",
+            "Supabaseデータベースに保存"
+        ]
+        
+        result = service.store_embeddings_to_supabase(
+            texts=test_texts,
+            supabase_url="https://test.supabase.co",
+            supabase_key="test-key",
+            document_id="integration-test-doc",
+            filename="integration_test.pdf"
+        )
+        
+        # 結果検証
+        assert len(result) == 3
+        assert all(chunk_id.startswith("chunk_") for chunk_id in result)
+        
+        # VectorStore呼び出し検証
+        mock_vector_store.assert_called_once_with("https://test.supabase.co", "test-key")
+        mock_store_instance.store_chunks.assert_called_once()
+        
+        # 保存されたチャンクデータの構造確認
+        call_args = mock_store_instance.store_chunks.call_args
+        chunk_data = call_args[0][0]  # 最初の引数
+        document_id = call_args[0][1]  # 2番目の引数
+        
+        assert len(chunk_data) == 3
+        assert document_id == "integration-test-doc"
+        
+        for i, chunk in enumerate(chunk_data):
+            assert chunk["content"] == test_texts[i]
+            assert chunk["filename"] == "integration_test.pdf"
+            assert chunk["page_number"] == i + 1
+            assert len(chunk["embedding"]) == 1536
+    
+    @patch('services.embeddings.VectorStore')
+    @patch('openai.OpenAI')
+    def test_batch_supabase_storage_large_dataset(self, mock_openai, mock_vector_store):
+        """統合: 大量データのバッチSupabase保存"""
+        # 大量データ用のモック
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536) for _ in range(100)]
+        mock_response.usage.total_tokens = 1000
+        
+        mock_client = mock_openai.return_value
+        mock_client.embeddings.create.return_value = mock_response
+        
+        mock_store_instance = mock_vector_store.return_value
+        mock_store_instance.store_chunks.return_value = None
+        
+        service = EmbeddingService("sk-test123456789")
+        
+        # 大量テキストデータ（100件）
+        large_texts = [f"大量データテスト {i}" for i in range(100)]
+        
+        result = service.batch_store_embeddings_to_supabase(
+            texts=large_texts,
+            supabase_url="https://test.supabase.co",
+            supabase_key="test-key",
+            document_id="large-dataset-test",
+            filename="large_test.pdf",
+            batch_size=50  # 50件ずつバッチ処理
+        )
+        
+        # 結果検証
+        assert len(result) == 100
+        assert result[0] == "chunk_0"
+        assert result[99] == "chunk_99"
+        
+        # VectorStore呼び出し検証（2回のバッチ処理）
+        assert mock_store_instance.store_chunks.call_count == 2
+    
+    @patch('openai.OpenAI')
+    def test_supabase_error_handling(self, mock_openai):
+        """統合: Supabaseエラーハンドリング"""
+        from services.embeddings import EmbeddingError
+        
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536)]
+        mock_response.usage.total_tokens = 10
+        
+        mock_client = mock_openai.return_value
+        mock_client.embeddings.create.return_value = mock_response
+        
+        service = EmbeddingService("sk-test123456789")
+        
+        # VectorStore初期化エラーをシミュレート
+        with patch('services.embeddings.VectorStore', side_effect=Exception("Supabase接続エラー")):
+            with pytest.raises(EmbeddingError, match="Supabase保存中にエラーが発生しました"):
+                service.store_embeddings_to_supabase(
+                    texts=["エラーテスト"],
+                    supabase_url="https://invalid.supabase.co",
+                    supabase_key="invalid-key",
+                    document_id="error-test-doc"
+                )
+
+
 class TestDataValidation:
     """データ検証・整合性テスト"""
     
