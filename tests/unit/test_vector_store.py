@@ -187,3 +187,128 @@ class TestDocumentRecord:
         assert record.file_size == 1024000
         assert record.total_pages == 25
         assert record.processing_status == "completed"
+
+
+class TestBulkInsertEmbeddings:
+    """bulk_insert_embeddings TDDテストクラス"""
+    
+    def test_bulk_insert_embeddings_not_implemented(self, mock_supabase_client):
+        """TDD Red: bulk_insert_embeddings 未実装テスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        embedding_results = [
+            Mock(embedding=[0.1] * 1536, metadata={"id": "1"}),
+            Mock(embedding=[0.2] * 1536, metadata={"id": "2"})
+        ]
+        
+        document_chunks = [
+            {
+                "content": "テストチャンク1",
+                "filename": "test.pdf", 
+                "page_number": 1,
+                "token_count": 10
+            },
+            {
+                "content": "テストチャンク2",
+                "filename": "test.pdf",
+                "page_number": 2, 
+                "token_count": 15
+            }
+        ]
+        
+        # 現在は未実装なのでNotImplementedErrorが発生することを期待  
+        import asyncio
+        with pytest.raises(NotImplementedError):
+            asyncio.run(store.bulk_insert_embeddings(embedding_results, document_chunks))
+    
+    def test_bulk_insert_embeddings_empty_lists(self, mock_supabase_client):
+        """TDD Red: 空リスト処理テスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        import asyncio
+        with pytest.raises(NotImplementedError):
+            asyncio.run(store.bulk_insert_embeddings([], []))
+    
+    def test_bulk_insert_embeddings_mismatched_lengths(self, mock_supabase_client):
+        """TDD Red: リスト長不一致エラーテスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        embedding_results = [Mock(embedding=[0.1] * 1536)]
+        document_chunks = [
+            {"content": "chunk1", "filename": "test.pdf"},
+            {"content": "chunk2", "filename": "test.pdf"}
+        ]
+        
+        with pytest.raises(NotImplementedError):
+            store.bulk_insert_embeddings(embedding_results, document_chunks)
+    
+    def test_bulk_insert_embeddings_1000_chunks_performance(self, mock_supabase_client):
+        """TDD Red: 1000件一括挿入パフォーマンステスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        # 1000件のテストデータ生成
+        embedding_results = [
+            Mock(embedding=[0.1] * 1536, metadata={"id": str(i)})
+            for i in range(1000)
+        ]
+        document_chunks = [
+            {
+                "content": f"テストチャンク{i}",
+                "filename": "test.pdf",
+                "page_number": i % 100 + 1,
+                "token_count": 10
+            }
+            for i in range(1000)
+        ]
+        
+        with pytest.raises(NotImplementedError):
+            store.bulk_insert_embeddings(embedding_results, document_chunks)
+
+
+class TestSearchSimilarEmbeddings:
+    """search_similar_embeddings TDDテストクラス"""
+    
+    def test_search_similar_embeddings_not_implemented(self, mock_supabase_client):
+        """TDD Red: search_similar_embeddings 未実装テスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        query_embedding = [0.1] * 1536
+        
+        # 現在は未実装なのでNotImplementedErrorが発生することを期待
+        with pytest.raises(NotImplementedError):
+            store.search_similar_embeddings(query_embedding, limit=10)
+    
+    def test_search_similar_embeddings_performance_requirement(self, mock_supabase_client):
+        """TDD Red: 500ms以下レスポンス要件テスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        query_embedding = [0.1] * 1536
+        
+        with pytest.raises(NotImplementedError):
+            store.search_similar_embeddings(query_embedding, limit=10)
+    
+    def test_search_similar_embeddings_invalid_embedding(self, mock_supabase_client):
+        """TDD Red: 無効な埋め込みベクトルエラーテスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        # 次元数が間違っている埋め込みベクトル
+        invalid_embedding = [0.1] * 512  # 1536ではなく512次元
+        
+        with pytest.raises(NotImplementedError):
+            store.search_similar_embeddings(invalid_embedding, limit=10)
+    
+    def test_search_similar_embeddings_limit_validation(self, mock_supabase_client):
+        """TDD Red: limit パラメータ検証テスト"""
+        store = VectorStore("https://test.supabase.co", "test-key")
+        
+        query_embedding = [0.1] * 1536
+        
+        # 無効なlimit値
+        with pytest.raises(NotImplementedError):
+            store.search_similar_embeddings(query_embedding, limit=-1)
+        
+        with pytest.raises(NotImplementedError):
+            store.search_similar_embeddings(query_embedding, limit=0)
+        
+        with pytest.raises(NotImplementedError):
+            store.search_similar_embeddings(query_embedding, limit=1001)  # MAX_SEARCH_LIMIT超過

@@ -54,23 +54,92 @@ def mock_claude_client():
 # Supabaseモック
 @pytest.fixture
 def mock_supabase_client():
-    """Supabase クライアントモック"""
-    with patch('supabase.create_client') as mock_create_client:
+    """Supabase クライアントモック（接続プール対応）"""
+    with patch('supabase.create_client') as mock_create_client, \
+         patch('supabase._async.client.create_client') as mock_create_async_client:
+        
+        # 同期クライアントモック
         mock_client = Mock()
         
-        # テーブル操作モック
-        mock_table = Mock()
-        mock_table.insert.return_value.execute.return_value = Mock(
-            data=[{"id": "test-id"}]
-        )
-        mock_table.select.return_value.execute.return_value = Mock(
-            data=[{"id": "test-id", "content": "テストデータ"}]
-        )
-        mock_table.delete.return_value.execute.return_value = Mock()
+        # 非同期クライアントモック
+        mock_async_client = Mock()
         
-        mock_client.table.return_value = mock_table
+        # テーブル操作モック（同期・非同期共通）
+        def create_table_mock(table_name=None):
+            mock_table = Mock()
+            
+            # 同期実行モック
+            mock_execute_result = Mock(data=[{"id": "test-id"}])
+            mock_table.insert.return_value.execute.return_value = mock_execute_result
+            mock_table.select.return_value.execute.return_value = Mock(
+                data=[{"id": "test-id", "content": "テストデータ"}]
+            )
+            mock_table.delete.return_value.execute.return_value = Mock()
+            
+            # RPC関数モック
+            mock_table.rpc.return_value.execute.return_value = Mock(
+                data=[
+                    {
+                        "content": "テスト結果",
+                        "filename": "test.pdf",
+                        "page_number": 1,
+                        "distance": 0.1,
+                        "section_name": "テストセクション",
+                        "chapter_number": 1,
+                        "start_pos": {"x": 100, "y": 200},
+                        "end_pos": {"x": 400, "y": 220},
+                        "token_count": 50
+                    }
+                ]
+            )
+            
+            return mock_table
+        
+        mock_client.table.side_effect = create_table_mock
+        mock_async_client.table.side_effect = create_table_mock
+        
+        # RPC関数の直接モック（非テーブル経由）
+        mock_client.rpc.return_value.execute.return_value = Mock(
+            data=[{"id": "test-id", "similarity": 0.9}]
+        )
+        mock_async_client.rpc.return_value.execute.return_value = Mock(
+            data=[{"id": "test-id", "similarity": 0.9}]
+        )
+        
         mock_create_client.return_value = mock_client
+        mock_create_async_client.return_value = mock_async_client
+        
         yield mock_client
+
+# 接続プールモック
+@pytest.fixture  
+def mock_connection_pool(mock_supabase_client):
+    """接続プールモック"""
+    with patch('services.vector_store.SupabaseConnectionPool') as mock_pool_class:
+        mock_pool = Mock()
+        
+        # 非同期接続取得・返却（実際のクライアントを返す）
+        async def mock_get_connection(async_mode=False):
+            # 接続プールから実際のモッククライアントを返す
+            return mock_supabase_client, 0  # (クライアント, インデックス)
+        
+        async def mock_release_connection(index):
+            pass
+        
+        async def mock_health_check():
+            return {
+                "pool_size": 10,
+                "available_connections": 8,
+                "total_connections": 10,
+                "utilization_rate": 0.2
+            }
+        
+        mock_pool.get_connection = mock_get_connection
+        mock_pool.release_connection = mock_release_connection
+        mock_pool.health_check = mock_health_check
+        
+        mock_pool_class.return_value = mock_pool
+        yield mock_pool
 
 # spaCyモック
 @pytest.fixture
@@ -247,8 +316,8 @@ def mock_streamlit_session():
 
 # 外部API呼び出しを全てモック化
 @pytest.fixture(autouse=True)
-def mock_external_apis(mock_openai_client, mock_claude_client, mock_supabase_client):
-    """全テストで外部API呼び出しをモック化"""
+def mock_external_apis(mock_openai_client, mock_claude_client, mock_supabase_client, mock_connection_pool):
+    """全テストで外部API呼び出しをモック化（接続プール対応）"""
     # spaCyの初期化もモック化
     with patch('spacy.load') as mock_spacy_load, \
          patch('spacy.blank') as mock_spacy_blank:
