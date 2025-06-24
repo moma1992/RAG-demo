@@ -285,11 +285,15 @@ class TestRateLimitHandling:
         
         with patch.object(processor, '_process_single_text_with_retry', new_callable=AsyncMock) as mock_process:
             # 各テキストで最初の2回はエラー、3回目で成功
-            call_counts = {}\n            total_calls = 0
+            call_counts = {}
+            total_calls = 0
             async def side_effect(text):
                 nonlocal total_calls
                 total_calls += 1
-                if text not in call_counts:\n                    call_counts[text] = 0\n                call_counts[text] += 1\n                if call_counts[text] <= 2:  # 各テキストで2回失敗
+                if text not in call_counts:
+                    call_counts[text] = 0
+                call_counts[text] += 1
+                if call_counts[text] <= 2:  # 各テキストで2回失敗
                     raise Exception("RateLimitError: Too many requests")
                 return Mock(text=text, embedding=[0.1]*1536)
             

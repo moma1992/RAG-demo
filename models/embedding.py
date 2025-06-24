@@ -17,7 +17,7 @@ import math
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -194,6 +194,7 @@ class EmbeddingResult:
     token_count: int
     model: str = "text-embedding-3-small"
     created_at: datetime = field(default_factory=datetime.now)
+    response_time: Optional[float] = None
     
     def __post_init__(self) -> None:
         """初期化後の検証"""
@@ -233,6 +234,22 @@ class EmbeddingResult:
                 field="created_at",
                 value=type(self.created_at)
             )
+        
+        # レスポンス時間検証
+        if self.response_time is not None:
+            if not isinstance(self.response_time, (int, float)):
+                raise EmbeddingValidationError(
+                    "レスポンス時間は数値である必要があります",
+                    field="response_time",
+                    value=type(self.response_time)
+                )
+            
+            if self.response_time < 0:
+                raise EmbeddingValidationError(
+                    "レスポンス時間は非負値である必要があります",
+                    field="response_time",
+                    value=self.response_time
+                )
     
     def to_supabase_format(self) -> Dict[str, Any]:
         """
@@ -241,13 +258,18 @@ class EmbeddingResult:
         Returns:
             Dict[str, Any]: Supabase互換形式のデータ
         """
-        return {
+        result = {
             "text": self.text,
             "embedding": self.embedding,
             "token_count": self.token_count,
             "model": self.model,
             "created_at": self.created_at.isoformat()
         }
+        
+        if self.response_time is not None:
+            result["response_time"] = self.response_time
+            
+        return result
     
     def get_metadata(self) -> Dict[str, Any]:
         """
@@ -257,7 +279,7 @@ class EmbeddingResult:
             Dict[str, Any]: メタデータ情報
         """
         model_info = OPENAI_EMBEDDING_MODELS[self.model]
-        return {
+        metadata = {
             "model": self.model,
             "dimension": model_info["dimension"],
             "token_count": self.token_count,
@@ -265,6 +287,11 @@ class EmbeddingResult:
             "created_at": self.created_at,
             "cost_per_1k_tokens": model_info["cost_per_1k_tokens"]
         }
+        
+        if self.response_time is not None:
+            metadata["response_time"] = self.response_time
+            
+        return metadata
     
     def calculate_cost(self) -> float:
         """

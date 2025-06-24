@@ -73,11 +73,15 @@ class EmbeddingService:
                     api_key=api_key,
                     timeout=timeout
                 )
+                self.async_client = self.client
+                self.sync_client = None
             else:
                 self.client = openai.OpenAI(
                     api_key=api_key,
                     timeout=timeout
                 )
+                self.sync_client = self.client
+                self.async_client = None
             
             # トークンエンコーダー初期化（フォールバック用）
             try:
@@ -189,7 +193,7 @@ class EmbeddingService:
             ValueError: テキストが空、None、または長すぎる場合
             EmbeddingError: 埋め込み生成エラーの場合
         """
-        if not self.async_mode:
+        if not self.async_mode or self.async_client is None:
             raise EmbeddingError("非同期モードが有効化されていません")
         
         # 入力検証
@@ -208,7 +212,7 @@ class EmbeddingService:
         start_time = time.time()
         
         try:
-            response = await self.client.embeddings.create(
+            response = await self.async_client.embeddings.create(
                 input=text,
                 model=self.model
             )
@@ -250,7 +254,7 @@ class EmbeddingService:
             raise ValueError("テキストリストが空です")
         
         if len(texts) > 2048:
-            raise ValueError("バッチサイズが制限を超えています（2048件まで）")
+            raise ValueError("バッチサイズが制限を超えています")
         
         logger.info(f"バッチ埋め込み生成開始: {len(texts)}件")
         
