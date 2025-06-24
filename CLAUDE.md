@@ -286,10 +286,10 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     """PDF from text extraction - minimal implementation"""
     raise NotImplementedError("実装予定")
 
-# Phase 3: Refactor (品質向上)
-# - 型ヒント追加
-# - ドックストリング完備  
-# - エラーハンドリング強化
+Phase 3: Refactor (品質向上)
+- 型ヒント追加
+- ドックストリング完備  
+- エラーハンドリング強化
 ```
 
 #### Mock Testing Strategy for External Services

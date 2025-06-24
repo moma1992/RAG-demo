@@ -9,23 +9,29 @@ from typing import List, Dict, Any, Optional
 import logging
 import time
 import asyncio
-from dataclasses import dataclass
+from datetime import datetime
 import openai
 import tiktoken
 
+# models.embeddingから完全なデータモデルをインポート
+from models.embedding import (
+    EmbeddingResult,
+    EmbeddingBatch,
+    EmbeddingValidationError,
+    OPENAI_EMBEDDING_DIMENSION
+)
+
+# トークンカウントユーティリティ
+from utils.tokenizer import TokenCounter
+
 logger = logging.getLogger(__name__)
 
-@dataclass
-class EmbeddingResult:
-    """埋め込み結果"""
-    embedding: List[float]
-    token_count: int
-    model: str
-    response_time: Optional[float] = None
+# Issue #54専用のレスポンス時間追跡データクラス
+from dataclasses import dataclass
 
 @dataclass  
 class BatchEmbeddingResult:
-    """バッチ埋め込み結果"""
+    """バッチ埋め込み結果（Issue #54互換性）"""
     embeddings: List[List[float]]
     total_tokens: int
     model: str
@@ -58,6 +64,9 @@ class EmbeddingService:
         self.timeout = timeout
         self.async_mode = async_mode
         
+        # Issue #53のTokenCounterと統合
+        self.token_counter = TokenCounter(model)
+        
         try:
             if async_mode:
                 self.client = openai.AsyncOpenAI(
@@ -70,8 +79,11 @@ class EmbeddingService:
                     timeout=timeout
                 )
             
-            # トークンエンコーダー初期化
-            self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
+            # トークンエンコーダー初期化（フォールバック用）
+            try:
+                self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
+            except Exception:
+                self.tokenizer = None
             
             logger.info(f"EmbeddingService初期化完了: model={model}")
             
@@ -87,7 +99,7 @@ class EmbeddingService:
             text: 埋め込み対象テキスト
             
         Returns:
-            EmbeddingResult: 埋め込み結果
+            EmbeddingResult: 埋め込み結果（Issue #53データモデル使用）
             
         Raises:
             ValueError: テキストが空、None、または長すぎる場合
@@ -100,8 +112,8 @@ class EmbeddingService:
         if not text.strip():
             raise ValueError("テキストが空です")
         
-        # トークン数チェック
-        token_count = self.estimate_tokens(text)
+        # トークン数チェック（Issue #53のTokenCounterを使用）
+        token_count = self.token_counter.count_tokens(text)
         if token_count > 8192:
             raise ValueError("テキストが長すぎます（8192トークン制限）")
         
@@ -118,16 +130,24 @@ class EmbeddingService:
             end_time = time.time()
             response_time = end_time - start_time
             
+            # Issue #53のEmbeddingResultデータクラスを使用
             result = EmbeddingResult(
+                text=text,
                 embedding=response.data[0].embedding,
                 token_count=response.usage.total_tokens,
                 model=self.model,
-                response_time=response_time
+                created_at=datetime.now()
             )
+            
+            # Issue #54要件：response_time追跡
+            result.response_time = response_time
             
             logger.info(f"埋め込み生成完了: {response_time:.3f}秒")
             return result
             
+        except EmbeddingValidationError as e:
+            logger.error(f"埋め込み検証エラー: {str(e)}", exc_info=True)
+            raise EmbeddingError(f"埋め込み検証エラー: {str(e)}") from e
         except Exception as e:
             # OpenAI例外の種類を判定
             error_name = e.__class__.__name__
@@ -179,7 +199,7 @@ class EmbeddingService:
         if not text.strip():
             raise ValueError("テキストが空です")
         
-        token_count = self.estimate_tokens(text)
+        token_count = self.token_counter.count_tokens(text)
         if token_count > 8192:
             raise ValueError("テキストが長すぎます（8192トークン制限）")
         
@@ -197,11 +217,13 @@ class EmbeddingService:
             response_time = end_time - start_time
             
             result = EmbeddingResult(
+                text=text,
                 embedding=response.data[0].embedding,
                 token_count=response.usage.total_tokens,
                 model=self.model,
-                response_time=response_time
+                created_at=datetime.now()
             )
+            result.response_time = response_time
             
             logger.info(f"非同期埋め込み生成完了: {response_time:.3f}秒")
             return result
@@ -212,7 +234,7 @@ class EmbeddingService:
     
     def generate_batch_embeddings(self, texts: List[str]) -> BatchEmbeddingResult:
         """
-        バッチで埋め込みを生成
+        バッチで埋め込みを生成（Issue #54互換性）
         
         Args:
             texts: 埋め込み対象テキストリスト
@@ -253,6 +275,57 @@ class EmbeddingService:
             logger.error(f"バッチ埋め込み生成エラー: {str(e)}", exc_info=True)
             raise EmbeddingError(f"バッチ埋め込み生成中にエラーが発生しました: {str(e)}") from e
     
+    def create_batch_embeddings(self, texts: List[str]) -> EmbeddingBatch:
+        """
+        バッチで埋め込みを生成（Issue #53互換性）
+        
+        Args:
+            texts: 埋め込み対象テキストリスト
+            
+        Returns:
+            EmbeddingBatch: バッチ埋め込み結果
+            
+        Raises:
+            ValueError: テキストリストが空または制限超過の場合
+            EmbeddingError: 埋め込み生成エラーの場合
+        """
+        if not texts:
+            raise ValueError("テキストリストが空です")
+        
+        logger.info(f"バッチ埋め込み生成開始: {len(texts)}件")
+        
+        try:
+            # 各テキストのEmbeddingResultを生成
+            results = []
+            for text in texts:
+                # 実際のOpenAI APIを呼び出し
+                response = self.client.embeddings.create(
+                    input=text,
+                    model=self.model
+                )
+                
+                result = EmbeddingResult(
+                    text=text,
+                    embedding=response.data[0].embedding,
+                    token_count=response.usage.total_tokens,
+                    model=self.model,
+                    created_at=datetime.now()
+                )
+                results.append(result)
+            
+            # EmbeddingBatchオブジェクトを作成
+            batch = EmbeddingBatch(results)
+            
+            logger.info(f"バッチ埋め込み生成完了: {len(results)}件")
+            return batch
+            
+        except EmbeddingValidationError as e:
+            logger.error(f"バッチ埋め込み検証エラー: {str(e)}", exc_info=True)
+            raise EmbeddingError(f"バッチ埋め込み検証エラー: {str(e)}") from e
+        except Exception as e:
+            logger.error(f"バッチ埋め込み生成エラー: {str(e)}", exc_info=True)
+            raise EmbeddingError(f"バッチ埋め込み生成中にエラーが発生しました: {str(e)}") from e
+    
     def estimate_tokens(self, text: str) -> int:
         """
         テキストのトークン数を推定
@@ -269,13 +342,8 @@ class EmbeddingService:
         if not text:
             raise ValueError("テキストが空です")
         
-        try:
-            tokens = self.tokenizer.encode(text)
-            return len(tokens)
-        except Exception as e:
-            logger.warning(f"トークン推定エラー、文字数ベース推定を使用: {str(e)}")
-            # フォールバック: 文字数ベース推定（日本語対応）
-            return len(text) // 2 if any('\u3040' <= c <= '\u309f' or '\u30a0' <= c <= '\u30ff' or '\u4e00' <= c <= '\u9faf' for c in text) else len(text) // 4
+        # Issue #53のTokenCounterを優先使用
+        return self.token_counter.count_tokens(text)
     
     def validate_embedding_dimension(self, embedding: List[float]) -> bool:
         """
@@ -287,8 +355,8 @@ class EmbeddingService:
         Returns:
             bool: 検証結果
         """
-        expected_dim = 1536  # text-embedding-3-smallの次元数
-        return len(embedding) == expected_dim
+        # models.embeddingの定数を使用
+        return len(embedding) == OPENAI_EMBEDDING_DIMENSION
     
     def get_model_info(self) -> Dict[str, Any]:
         """
@@ -299,7 +367,7 @@ class EmbeddingService:
         """
         return {
             "model": self.model,
-            "dimension": 1536,
+            "dimension": OPENAI_EMBEDDING_DIMENSION,
             "max_tokens": 8192,
             "async_mode": self.async_mode,
             "timeout": self.timeout
