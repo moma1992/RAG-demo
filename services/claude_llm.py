@@ -6,7 +6,11 @@ Anthropic Claude APIを使用したテキスト生成機能
 
 from typing import List, Dict, Any, Optional
 import logging
+import time
 from dataclasses import dataclass
+
+import anthropic
+from anthropic import Anthropic
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +37,23 @@ class ClaudeLLMService:
         Args:
             api_key: Anthropic APIキー
             model: 使用するモデル名
+            
+        Raises:
+            ValueError: APIキーが空の場合
         """
+        if not api_key or api_key.strip() == "":
+            raise ValueError("APIキーが指定されていません")
+            
         self.api_key = api_key
         self.model = model
         self.max_tokens = 4096
+        self.max_retries = 3
+        self.retry_delay = 1.0
+        
+        # Anthropicクライアント初期化
+        self.client = Anthropic(api_key=api_key)
+        
         logger.info(f"ClaudeLLMService初期化完了: model={model}")
-        # TODO: Anthropicクライアント初期化
     
     def generate_response(
         self,
@@ -62,44 +77,63 @@ class ClaudeLLMService:
         """
         logger.info(f"回答生成開始: query={query[:50]}...")
         
-        try:
-            # システムプロンプトを構築
-            system_prompt = self._build_system_prompt()
-            
-            # ユーザープロンプトを構築
-            user_prompt = self._build_user_prompt(query, context_chunks)
-            
-            # TODO: Claude API実装
-            # messages = []
-            # if chat_history:
-            #     messages.extend([{"role": msg.role, "content": msg.content} for msg in chat_history])
-            # messages.append({"role": "user", "content": user_prompt})
-            #
-            # response = self.client.messages.create(
-            #     model=self.model,
-            #     max_tokens=self.max_tokens,
-            #     system=system_prompt,
-            #     messages=messages
-            # )
-            
-            # ダミー応答
-            dummy_response = f"申し訳ございませんが、現在この機能は開発中です。質問「{query}」について、準備ができ次第お答えいたします。"
-            
-            result = GenerationResult(
-                content=dummy_response,
-                usage={
-                    "input_tokens": len(user_prompt) // 4,
-                    "output_tokens": len(dummy_response) // 4
-                },
-                model=self.model
-            )
-            
-            logger.info("回答生成完了")
-            return result
-            
-        except Exception as e:
-            logger.error(f"回答生成エラー: {str(e)}", exc_info=True)
-            raise LLMError(f"回答生成中にエラーが発生しました: {str(e)}") from e
+        for attempt in range(self.max_retries):
+            try:
+                # システムプロンプトを構築
+                system_prompt = self._build_system_prompt()
+                
+                # ユーザープロンプトを構築
+                user_prompt = self._build_user_prompt(query, context_chunks)
+                
+                # メッセージ履歴を構築
+                messages = []
+                if chat_history:
+                    messages.extend([
+                        {"role": msg.role, "content": msg.content} 
+                        for msg in chat_history
+                    ])
+                messages.append({"role": "user", "content": user_prompt})
+                
+                # Claude API呼び出し
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    system=system_prompt,
+                    messages=messages
+                )
+                
+                # 応答からデータ抽出
+                content = response.content[0].text
+                
+                result = GenerationResult(
+                    content=content,
+                    usage={
+                        "input_tokens": response.usage.input_tokens,
+                        "output_tokens": response.usage.output_tokens
+                    },
+                    model=self.model
+                )
+                
+                logger.info("回答生成完了")
+                return result
+                
+            except anthropic.RateLimitError as e:
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (2 ** attempt)
+                    logger.warning(f"レート制限エラー。{wait_time}秒後にリトライします: {str(e)}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"レート制限エラー（最大リトライ回数到達）: {str(e)}")
+                    raise LLMError(f"レート制限により回答生成に失敗しました: {str(e)}") from e
+                    
+            except anthropic.AnthropicError as e:
+                logger.error(f"Claude APIエラー: {str(e)}", exc_info=True)
+                raise LLMError(f"回答生成中にAPIエラーが発生しました: {str(e)}") from e
+                
+            except Exception as e:
+                logger.error(f"回答生成エラー: {str(e)}", exc_info=True)
+                raise LLMError(f"回答生成中にエラーが発生しました: {str(e)}") from e
     
     def _build_system_prompt(self) -> str:
         """システムプロンプトを構築"""
@@ -143,25 +177,62 @@ class ClaudeLLMService:
         """
         logger.info(f"テキスト要約開始: {len(text)}文字")
         
-        try:
-            # TODO: Claude API実装
-            summary = f"{text[:max_length]}..." if len(text) > max_length else text
-            
-            result = GenerationResult(
-                content=summary,
-                usage={
-                    "input_tokens": len(text) // 4,
-                    "output_tokens": len(summary) // 4
-                },
-                model=self.model
-            )
-            
-            logger.info("テキスト要約完了")
-            return result
-            
-        except Exception as e:
-            logger.error(f"テキスト要約エラー: {str(e)}", exc_info=True)
-            raise LLMError(f"テキスト要約中にエラーが発生しました: {str(e)}") from e
+        for attempt in range(self.max_retries):
+            try:
+                # 要約用のシステムプロンプト
+                system_prompt = f"""あなたは文書要約の専門家です。
+以下のガイドラインに従って、日本語で簡潔な要約を作成してください：
+
+1. 重要なポイントを漏らさずに要約する
+2. 新入社員にとって分かりやすい表現を使用する
+3. 最大{max_length}文字以内で要約する
+4. 元の文書の主要な内容を正確に反映する"""
+
+                # ユーザープロンプト
+                user_prompt = f"""以下のテキストを要約してください：
+
+{text}"""
+
+                # Claude API呼び出し
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}]
+                )
+                
+                # 応答からデータ抽出
+                content = response.content[0].text
+                
+                result = GenerationResult(
+                    content=content,
+                    usage={
+                        "input_tokens": response.usage.input_tokens,
+                        "output_tokens": response.usage.output_tokens
+                    },
+                    model=self.model
+                )
+                
+                logger.info("テキスト要約完了")
+                return result
+                
+            except anthropic.RateLimitError as e:
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (2 ** attempt)
+                    logger.warning(f"要約処理レート制限エラー。{wait_time}秒後にリトライします: {str(e)}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"要約処理レート制限エラー（最大リトライ回数到達）: {str(e)}")
+                    raise LLMError(f"レート制限により要約処理に失敗しました: {str(e)}") from e
+                    
+            except anthropic.AnthropicError as e:
+                logger.error(f"要約処理Claude APIエラー: {str(e)}", exc_info=True)
+                raise LLMError(f"テキスト要約中にAPIエラーが発生しました: {str(e)}") from e
+                
+            except Exception as e:
+                logger.error(f"テキスト要約エラー: {str(e)}", exc_info=True)
+                raise LLMError(f"テキスト要約中にエラーが発生しました: {str(e)}") from e
 
 class LLMError(Exception):
     """LLMエラー"""
