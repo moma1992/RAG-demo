@@ -17,7 +17,7 @@ import math
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -489,14 +489,15 @@ class EmbeddingCostCalculator:
         """
         validate_embedding_model(model)
         
-        # 簡易トークン数推定（実際のトークンカウントは別途必要）
+        # 正確なトークン数カウント
+        from utils.tokenizer import TokenCounter
+        token_counter = TokenCounter(model)
+        
         estimated_tokens = []
         for text in texts:
             validate_embedding_text(text)
-            # 単純な推定: 1単語 ≈ 1.3トークン
-            word_count = len(text.split())
-            estimated_token_count = max(1, int(word_count * 1.3))
-            estimated_tokens.append(estimated_token_count)
+            token_count = token_counter.count_tokens(text)
+            estimated_tokens.append(token_count)
         
         total_tokens = sum(estimated_tokens)
         estimated_cost = self.calculate_cost(total_tokens, model)

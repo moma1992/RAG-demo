@@ -6,23 +6,20 @@ OpenAI text-embedding-3-smallを使用したベクトル埋め込み生成
 
 from typing import List, Dict, Any, Optional
 import logging
-from dataclasses import dataclass
+from datetime import datetime
+
+# models.embeddingから完全なデータモデルをインポート
+from models.embedding import (
+    EmbeddingResult,
+    EmbeddingBatch,
+    EmbeddingValidationError,
+    OPENAI_EMBEDDING_DIMENSION
+)
+
+# トークンカウントユーティリティ
+from utils.tokenizer import TokenCounter
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class EmbeddingResult:
-    """埋め込み結果"""
-    embedding: List[float]
-    token_count: int
-    model: str
-
-@dataclass
-class BatchEmbeddingResult:
-    """バッチ埋め込み結果"""
-    embeddings: List[List[float]]
-    total_tokens: int
-    model: str
 
 class EmbeddingService:
     """埋め込みサービスクラス"""
@@ -37,6 +34,7 @@ class EmbeddingService:
         """
         self.api_key = api_key
         self.model = model
+        self.token_counter = TokenCounter(model)  # トークンカウンター初期化
         logger.info(f"EmbeddingService初期化完了: model={model}")
         # TODO: OpenAIクライアント初期化
     
@@ -63,22 +61,28 @@ class EmbeddingService:
             # )
             
             # ダミーデータ（1536次元）
-            dummy_embedding = [0.1] * 1536
+            dummy_embedding = [0.1] * OPENAI_EMBEDDING_DIMENSION
             
+            # 新しいEmbeddingResultデータクラスを使用
             result = EmbeddingResult(
+                text=text,  # textフィールドが必須
                 embedding=dummy_embedding,
-                token_count=len(text) // 4,  # 概算
-                model=self.model
+                token_count=self.token_counter.count_tokens(text),  # 正確なトークン数計算
+                model=self.model,
+                created_at=datetime.now()
             )
             
             logger.info("埋め込み生成完了")
             return result
             
+        except EmbeddingValidationError as e:
+            logger.error(f"埋め込み検証エラー: {str(e)}", exc_info=True)
+            raise EmbeddingError(f"埋め込み検証エラー: {str(e)}") from e
         except Exception as e:
             logger.error(f"埋め込み生成エラー: {str(e)}", exc_info=True)
             raise EmbeddingError(f"埋め込み生成中にエラーが発生しました: {str(e)}") from e
     
-    def create_batch_embeddings(self, texts: List[str]) -> BatchEmbeddingResult:
+    def create_batch_embeddings(self, texts: List[str]) -> EmbeddingBatch:
         """
         バッチで埋め込みを生成
         
@@ -86,7 +90,7 @@ class EmbeddingService:
             texts: 埋め込み対象テキストリスト
             
         Returns:
-            BatchEmbeddingResult: バッチ埋め込み結果
+            EmbeddingBatch: バッチ埋め込み結果
             
         Raises:
             EmbeddingError: 埋め込み生成エラーの場合
@@ -100,19 +104,28 @@ class EmbeddingService:
             #     model=self.model
             # )
             
-            # ダミーデータ
-            embeddings = [[0.1] * 1536 for _ in texts]
-            total_tokens = sum(len(text) // 4 for text in texts)
+            # 各テキストのEmbeddingResultを生成
+            results = []
+            for text in texts:
+                dummy_embedding = [0.1] * OPENAI_EMBEDDING_DIMENSION
+                result = EmbeddingResult(
+                    text=text,
+                    embedding=dummy_embedding,
+                    token_count=self.token_counter.count_tokens(text),  # 正確なトークン数計算
+                    model=self.model,
+                    created_at=datetime.now()
+                )
+                results.append(result)
             
-            result = BatchEmbeddingResult(
-                embeddings=embeddings,
-                total_tokens=total_tokens,
-                model=self.model
-            )
+            # EmbeddingBatchオブジェクトを作成
+            batch = EmbeddingBatch(results)
             
-            logger.info(f"バッチ埋め込み生成完了: {len(embeddings)}件")
-            return result
+            logger.info(f"バッチ埋め込み生成完了: {len(results)}件")
+            return batch
             
+        except EmbeddingValidationError as e:
+            logger.error(f"バッチ埋め込み検証エラー: {str(e)}", exc_info=True)
+            raise EmbeddingError(f"バッチ埋め込み検証エラー: {str(e)}") from e
         except Exception as e:
             logger.error(f"バッチ埋め込み生成エラー: {str(e)}", exc_info=True)
             raise EmbeddingError(f"バッチ埋め込み生成中にエラーが発生しました: {str(e)}") from e
@@ -127,8 +140,8 @@ class EmbeddingService:
         Returns:
             bool: 検証結果
         """
-        expected_dim = 1536  # text-embedding-3-smallの次元数
-        return len(embedding) == expected_dim
+        # models.embeddingの定数を使用
+        return len(embedding) == OPENAI_EMBEDDING_DIMENSION
     
     def calculate_cosine_similarity(
         self, 

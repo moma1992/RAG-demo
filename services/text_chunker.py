@@ -290,9 +290,11 @@ class TextChunker:
         try:
             return len(self.tokenizer.encode(text))
         except Exception as e:
-            logger.warning(f"トークンカウントエラー、概算値を使用: {str(e)}")
-            # フォールバック: 概算値を使用
-            return len(text) // 4
+            logger.warning(f"トークンカウントエラー、安全な推定値を使用: {str(e)}")
+            # フォールバック: 安全な推定アルゴリズム
+            from utils.tokenizer import TokenCounter
+            fallback_counter = TokenCounter()
+            return fallback_counter._estimate_tokens(text)
 
 
 class ChunkingError(Exception):
