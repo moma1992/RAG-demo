@@ -375,7 +375,8 @@ class TestSupabaseIntegrationFlow:
         
         # VectorStoreモック
         mock_store_instance = mock_vector_store.return_value
-        mock_store_instance.store_chunks.return_value = None
+        mock_store_instance.store_document.return_value = "integration-test-doc"
+        mock_store_instance.store_chunks.return_value = ["chunk_uuid_1", "chunk_uuid_2", "chunk_uuid_3"]
         
         service = EmbeddingService("sk-test123456789")
         
@@ -396,7 +397,7 @@ class TestSupabaseIntegrationFlow:
         
         # 結果検証
         assert len(result) == 3
-        assert all(chunk_id.startswith("chunk_") for chunk_id in result)
+        assert result == ["chunk_uuid_1", "chunk_uuid_2", "chunk_uuid_3"]
         
         # VectorStore呼び出し検証
         mock_vector_store.assert_called_once_with("https://test.supabase.co", "test-key")
@@ -429,7 +430,8 @@ class TestSupabaseIntegrationFlow:
         mock_client.embeddings.create.return_value = mock_response
         
         mock_store_instance = mock_vector_store.return_value
-        mock_store_instance.store_chunks.return_value = None
+        mock_store_instance.store_document.return_value = "large-dataset-test"
+        mock_store_instance.store_chunks.return_value = [f"chunk_uuid_{i}" for i in range(50)]
         
         service = EmbeddingService("sk-test123456789")
         
@@ -447,8 +449,8 @@ class TestSupabaseIntegrationFlow:
         
         # 結果検証
         assert len(result) == 100
-        assert result[0] == "chunk_0"
-        assert result[99] == "chunk_99"
+        assert result[0] == "chunk_uuid_0"
+        assert result[99] == "chunk_uuid_49"  # 2回呼び出しの2回目の最後
         
         # VectorStore呼び出し検証（2回のバッチ処理）
         assert mock_store_instance.store_chunks.call_count == 2

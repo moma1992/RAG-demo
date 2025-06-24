@@ -473,7 +473,7 @@ class EmbeddingService:
                 "total_pages": len(texts),
                 "processing_status": "completed"
             }
-            stored_doc_id = vector_store.store_document(document_data)
+            stored_doc_id = vector_store.store_document(document_data, document_id)
             
             # 各テキストの埋め込みを生成
             embedding_results = []
@@ -494,11 +494,8 @@ class EmbeddingService:
                 }
                 chunk_data.append(chunk)
             
-            # Supabaseにチャンクを保存（作成した文書IDを使用）
-            vector_store.store_chunks(chunk_data, stored_doc_id)
-            
-            # チャンクIDリスト（仮実装）
-            chunk_ids = [f"chunk_{i}" for i in range(len(texts))]
+            # Supabaseにチャンクを保存（提供されたdocument_idを使用）
+            chunk_ids = vector_store.store_chunks(chunk_data, stored_doc_id)
             
             logger.info(f"Supabase埋め込み保存完了: {len(chunk_ids)}件")
             return chunk_ids
@@ -555,7 +552,7 @@ class EmbeddingService:
                 "total_pages": len(texts),
                 "processing_status": "completed"
             }
-            stored_doc_id = vector_store.store_document(document_data)
+            stored_doc_id = vector_store.store_document(document_data, document_id)
             
             all_chunk_ids = []
             
@@ -573,16 +570,13 @@ class EmbeddingService:
                         "content": text,
                         "filename": filename,
                         "page_number": i + j + 1,  # 連続ページ番号
-                        "token_count": len(text.split()),  # 簡易トークン推定
+                        "token_count": self.token_counter.count_tokens(text),  # 正確なトークン数
                         "embedding": embedding
                     }
                     chunk_data.append(chunk)
                 
-                # Supabaseにバッチ保存（作成した文書IDを使用）
-                vector_store.store_chunks(chunk_data, stored_doc_id)
-                
-                # チャンクIDを追加（仮実装）
-                batch_chunk_ids = [f"chunk_{i+j}" for j in range(len(batch_texts))]
+                # Supabaseにバッチ保存（提供されたdocument_idを使用）
+                batch_chunk_ids = vector_store.store_chunks(chunk_data, stored_doc_id)
                 all_chunk_ids.extend(batch_chunk_ids)
                 
                 logger.info(f"バッチ {i//batch_size + 1} 保存完了: {len(batch_texts)}件")

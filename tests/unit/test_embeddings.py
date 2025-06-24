@@ -530,7 +530,8 @@ class TestSupabaseIntegration:
         # Supabase保存機能をテスト
         with patch('services.embeddings.VectorStore') as mock_vector_store:
             mock_store_instance = mock_vector_store.return_value
-            mock_store_instance.store_chunks.return_value = None
+            mock_store_instance.store_document.return_value = "test-doc-123"
+            mock_store_instance.store_chunks.return_value = ["chunk_uuid_1"]
             
             result = service.store_embeddings_to_supabase(
                 texts=["テストテキスト"],
@@ -542,7 +543,7 @@ class TestSupabaseIntegration:
             # 結果確認
             assert isinstance(result, list)
             assert len(result) == 1
-            assert result[0] == "chunk_0"
+            assert result[0] == "chunk_uuid_1"
             
             # VectorStoreの呼び出し確認
             mock_vector_store.assert_called_once_with("https://test.supabase.co", "test-key")
@@ -567,7 +568,8 @@ class TestSupabaseIntegration:
         # バッチSupabase保存機能をテスト
         with patch('services.embeddings.VectorStore') as mock_vector_store:
             mock_store_instance = mock_vector_store.return_value
-            mock_store_instance.store_chunks.return_value = None
+            mock_store_instance.store_document.return_value = "test-doc-123"
+            mock_store_instance.store_chunks.return_value = ["chunk_uuid_1", "chunk_uuid_2"]
             
             result = service.batch_store_embeddings_to_supabase(
                 texts=["テキスト1", "テキスト2"],
@@ -579,8 +581,8 @@ class TestSupabaseIntegration:
             # 結果確認
             assert isinstance(result, list)
             assert len(result) == 2
-            assert result[0] == "chunk_0"
-            assert result[1] == "chunk_1"
+            assert result[0] == "chunk_uuid_1"
+            assert result[1] == "chunk_uuid_2"
             
             # VectorStoreの呼び出し確認
             mock_vector_store.assert_called_once_with("https://test.supabase.co", "test-key")

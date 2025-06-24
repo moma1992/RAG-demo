@@ -442,12 +442,13 @@ class VectorStore:
         logger.info(f"VectorStore初期化完了: pool_size={self.pool_size}, async={enable_async}")
 
     @sync_retry(max_attempts=RETRY_ATTEMPTS)
-    def store_document(self, document_data: Dict[str, Any]) -> str:
+    def store_document(self, document_data: Dict[str, Any], document_id: Optional[str] = None) -> str:
         """
         文書をデータベースに保存
 
         Args:
             document_data: 文書データ
+            document_id: 指定する文書ID（オプション）
 
         Returns:
             str: 文書ID
@@ -458,7 +459,9 @@ class VectorStore:
         logger.info(f"文書保存開始: {document_data.get('filename', 'unknown')}")
 
         try:
-            document_id = str(uuid.uuid4())
+            # 提供されたIDを使用、なければ新規生成
+            if document_id is None:
+                document_id = str(uuid.uuid4())
 
             # documentsテーブルに挿入
             if self.client:
@@ -483,13 +486,16 @@ class VectorStore:
             raise VectorStoreError(f"文書保存中にエラーが発生しました: {str(e)}") from e
 
     @sync_retry(max_attempts=RETRY_ATTEMPTS)
-    def store_chunks(self, chunks: List[Dict[str, Any]], document_id: str) -> None:
+    def store_chunks(self, chunks: List[Dict[str, Any]], document_id: str) -> List[str]:
         """
         チャンクをデータベースに保存
 
         Args:
             chunks: チャンクリスト
             document_id: 文書ID
+
+        Returns:
+            List[str]: 保存されたチャンクIDリスト
 
         Raises:
             VectorStoreError: データベースエラーの場合
@@ -534,9 +540,13 @@ class VectorStore:
                 chunk_records.append(chunk_record)
 
             # バッチ挿入実行
-            self.client.table("document_chunks").insert(chunk_records).execute()
+            result = self.client.table("document_chunks").insert(chunk_records).execute()
+
+            # 保存されたチャンクIDを収集
+            chunk_ids = [record["id"] for record in chunk_records]
 
             logger.info(f"チャンク保存完了: {len(chunk_records)}個")
+            return chunk_ids
 
         except Exception as e:
             logger.error(f"チャンク保存エラー: {str(e)}", exc_info=True)
