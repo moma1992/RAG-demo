@@ -85,11 +85,15 @@ class ClaudeLLMService:
             # ダミー応答
             dummy_response = f"申し訳ございませんが、現在この機能は開発中です。質問「{query}」について、準備ができ次第お答えいたします。"
             
+            # 正確なトークン数計算
+            from utils.tokenizer import TokenCounter
+            token_counter = TokenCounter()
+            
             result = GenerationResult(
                 content=dummy_response,
                 usage={
-                    "input_tokens": len(user_prompt) // 4,
-                    "output_tokens": len(dummy_response) // 4
+                    "input_tokens": token_counter.count_tokens(user_prompt),
+                    "output_tokens": token_counter.count_tokens(dummy_response)
                 },
                 model=self.model
             )
@@ -147,11 +151,15 @@ class ClaudeLLMService:
             # TODO: Claude API実装
             summary = f"{text[:max_length]}..." if len(text) > max_length else text
             
+            # 正確なトークン数計算
+            from utils.tokenizer import TokenCounter
+            token_counter = TokenCounter()
+            
             result = GenerationResult(
                 content=summary,
                 usage={
-                    "input_tokens": len(text) // 4,
-                    "output_tokens": len(summary) // 4
+                    "input_tokens": token_counter.count_tokens(text),
+                    "output_tokens": token_counter.count_tokens(summary)
                 },
                 model=self.model
             )
