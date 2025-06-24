@@ -4,7 +4,7 @@
 Supabase + pgvectorを使用したベクトル検索機能
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 import logging
 from dataclasses import dataclass
 import uuid
@@ -200,7 +200,7 @@ class VectorStore:
 
             self.client = create_client(supabase_url, supabase_key)
         except ImportError:
-            self.client = None
+            self.client = None  # type: ignore
 
         logger.info("VectorStore初期化完了")
 
@@ -224,22 +224,18 @@ class VectorStore:
 
             # documentsテーブルに挿入
             if self.client:
-                result = (
-                    self.client.table("documents")
-                    .insert(
-                        {
-                            "id": document_id,
-                            "filename": document_data.get("filename"),
-                            "original_filename": document_data.get(
-                                "original_filename", document_data.get("filename")
-                            ),
-                            "file_size": document_data.get("file_size", 0),
-                            "total_pages": document_data.get("total_pages", 0),
-                            "processing_status": "processing",
-                        }
-                    )
-                    .execute()
-                )
+                self.client.table("documents").insert(
+                    {
+                        "id": document_id,
+                        "filename": document_data.get("filename"),
+                        "original_filename": document_data.get(
+                            "original_filename", document_data.get("filename")
+                        ),
+                        "file_size": document_data.get("file_size", 0),
+                        "total_pages": document_data.get("total_pages", 0),
+                        "processing_status": "processing",
+                    }
+                ).execute()
 
             logger.info(f"文書保存完了: {document_id}")
             return document_id
@@ -299,9 +295,7 @@ class VectorStore:
                 chunk_records.append(chunk_record)
 
             # バッチ挿入実行
-            result = (
-                self.client.table("document_chunks").insert(chunk_records).execute()
-            )
+            self.client.table("document_chunks").insert(chunk_records).execute()
 
             logger.info(f"チャンク保存完了: {len(chunk_records)}個")
 
@@ -444,18 +438,167 @@ class VectorStore:
         try:
             # documentsテーブルから削除（CASCADE削除でchunksも一緒に削除される）
             if self.client:
-                result = (
-                    self.client.table("documents")
-                    .delete()
-                    .eq("id", document_id)
-                    .execute()
-                )
+                self.client.table("documents").delete().eq("id", document_id).execute()
 
             logger.info(f"文書削除完了: {document_id}")
 
         except Exception as e:
             logger.error(f"文書削除エラー: {str(e)}", exc_info=True)
             raise VectorStoreError(f"文書削除中にエラーが発生しました: {str(e)}") from e
+
+    async def bulk_insert_embeddings(
+        self, embeddings: List[Any], document_chunks: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        バルク埋め込み保存 - Issue #57 要件実装
+
+        Args:
+            embeddings: EmbeddingResultリスト
+            document_chunks: DocumentChunkリスト
+
+        Returns:
+            bool: 保存成功フラグ
+
+        Raises:
+            VectorStoreError: バルク保存エラーの場合
+        """
+        logger.info(
+            f"バルク埋め込み保存開始: embeddings={len(embeddings)}, chunks={len(document_chunks)}"
+        )
+
+        try:
+            if not self.client:
+                raise VectorStoreError("Supabaseクライアントが初期化されていません")
+
+            # 入力検証
+            if not embeddings or not document_chunks:
+                raise VectorStoreError("埋め込みまたはチャンクリストが空です")
+
+            if len(embeddings) != len(document_chunks):
+                raise VectorStoreError(
+                    f"埋め込み数({len(embeddings)})とチャンク数({len(document_chunks)})が一致しません"
+                )
+
+            # 文書ID生成
+            document_id = str(uuid.uuid4())
+
+            # バルクレコード準備
+            bulk_records = []
+            for _i, (embedding_result, chunk) in enumerate(
+                zip(embeddings, document_chunks)
+            ):
+                # チャンクデータ検証
+                validate_chunk_data(chunk)
+
+                # 埋め込みベクトル検証
+                embedding_vector = getattr(embedding_result, "embedding", None)
+                if embedding_vector:
+                    validate_embedding_vector(embedding_vector)
+
+                chunk_record = {
+                    "id": str(uuid.uuid4()),
+                    "document_id": document_id,
+                    "content": chunk.get("content", ""),
+                    "filename": chunk.get("filename", ""),
+                    "page_number": chunk.get("page_number"),
+                    "chapter_number": chunk.get("chapter_number"),
+                    "section_name": chunk.get("section_name"),
+                    "start_pos": chunk.get("start_pos"),
+                    "end_pos": chunk.get("end_pos"),
+                    "embedding": embedding_vector,
+                    "token_count": chunk.get("token_count", 0),
+                }
+                bulk_records.append(chunk_record)
+
+            # Supabaseへバルクインサート実行
+            self.client.table("document_chunks").insert(bulk_records).execute()
+
+            logger.info(f"バルク埋め込み保存完了: {len(bulk_records)}件")
+            return True
+
+        except Exception as e:
+            logger.error(f"バルク埋め込み保存エラー: {str(e)}", exc_info=True)
+            raise VectorStoreError(
+                f"バルク保存中にエラーが発生しました: {str(e)}"
+            ) from e
+
+    async def search_similar_embeddings(
+        self, query_embedding: List[float], limit: int = 10
+    ) -> List[SearchResult]:
+        """
+        類似ベクトル検索 - Issue #57 要件実装
+
+        Args:
+            query_embedding: クエリ埋め込みベクトル
+            limit: 返す結果数
+
+        Returns:
+            List[SearchResult]: 検索結果リスト
+
+        Raises:
+            VectorStoreError: 検索エラーの場合
+        """
+        logger.info(f"類似埋め込み検索開始: limit={limit}")
+
+        try:
+            if not self.client:
+                raise VectorStoreError("Supabaseクライアントが初期化されていません")
+
+            # 入力検証
+            validate_embedding_vector(query_embedding)
+
+            # limit パラメータの詳細検証
+            if not isinstance(limit, int) or limit <= 0:
+                raise VectorStoreError(f"limit は正の整数である必要があります: {limit}")
+
+            if limit > MAX_SEARCH_LIMIT:
+                raise VectorStoreError(
+                    f"limit は{MAX_SEARCH_LIMIT}以下である必要があります: {limit}"
+                )
+
+            # pgvectorのコサイン類似度検索
+            # RPC関数を使用した高速ベクトル検索
+            rpc_result = self.client.rpc(
+                "match_documents",
+                {
+                    "query_embedding": query_embedding,
+                    "match_threshold": 0.0,  # 閾値なしで全結果取得
+                    "match_count": limit,
+                },
+            ).execute()
+
+            # 非同期実行の場合はawaitする
+            if hasattr(rpc_result, "__await__"):
+                result = await rpc_result
+            else:
+                result = rpc_result
+
+            # 結果をSearchResultオブジェクトに変換
+            search_results = []
+            if result.data:
+                for row in result.data:
+                    search_result = SearchResult(
+                        content=row.get("content", ""),
+                        filename=row.get("filename", ""),
+                        page_number=row.get("page_number", 0),
+                        similarity_score=1.0
+                        - row.get("distance", 1.0),  # 距離を類似度に変換
+                        metadata={
+                            "section_name": row.get("section_name"),
+                            "chapter_number": row.get("chapter_number"),
+                            "start_pos": row.get("start_pos"),
+                            "end_pos": row.get("end_pos"),
+                            "token_count": row.get("token_count", 0),
+                        },
+                    )
+                    search_results.append(search_result)
+
+            logger.info(f"類似埋め込み検索完了: {len(search_results)}件")
+            return search_results
+
+        except Exception as e:
+            logger.error(f"類似埋め込み検索エラー: {str(e)}", exc_info=True)
+            raise VectorStoreError(f"類似検索中にエラーが発生しました: {str(e)}") from e
 
 
 class VectorStoreError(Exception):
