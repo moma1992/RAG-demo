@@ -60,7 +60,7 @@ class TokenCounter:
         Returns:
             int: トークン数
         """
-        if not text:
+        if not text or not text.strip():
             return 0
         
         if self.encoding is not None:

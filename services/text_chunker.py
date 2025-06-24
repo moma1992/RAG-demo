@@ -5,12 +5,13 @@ spaCyを使用した日本語文書の意味的境界検出と512トークンチ
 """
 
 import spacy
-import tiktoken
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 import logging
 import uuid
 from datetime import datetime
+
+from utils.tokenizer import TokenCounter
 
 
 logger = logging.getLogger(__name__)
@@ -60,13 +61,13 @@ class TextChunker:
             logger.error(f"spaCy日本語モデルのロードに失敗しました: {str(e)}")
             raise ChunkingError(f"spaCy日本語モデルをロードできませんでした: {str(e)}") from e
         
-        # tiktokenエンコーダー初期化
+        # TokenCounterを初期化
         try:
-            self.tokenizer = tiktoken.get_encoding("cl100k_base")
-            logger.info("tiktokenエンコーダーを初期化しました")
+            self.token_counter = TokenCounter("text-embedding-3-small")
+            logger.info("TokenCounterを初期化しました")
         except Exception as e:
-            logger.error(f"tiktokenエンコーダーの初期化に失敗しました: {str(e)}")
-            raise ChunkingError(f"tiktokenエンコーダーを初期化できませんでした: {str(e)}") from e
+            logger.error(f"TokenCounterの初期化に失敗しました: {str(e)}")
+            raise ChunkingError(f"TokenCounterを初期化できませんでした: {str(e)}") from e
         
         logger.info(f"TextChunker初期化完了 - チャンクサイズ: {chunk_size}, オーバーラップ: {overlap_ratio}")
     
@@ -287,14 +288,7 @@ class TextChunker:
         if not text.strip():
             return 0
         
-        try:
-            return len(self.tokenizer.encode(text))
-        except Exception as e:
-            logger.warning(f"トークンカウントエラー、安全な推定値を使用: {str(e)}")
-            # フォールバック: 安全な推定アルゴリズム
-            from utils.tokenizer import TokenCounter
-            fallback_counter = TokenCounter()
-            return fallback_counter._estimate_tokens(text)
+        return self.token_counter.count_tokens(text)
 
 
 class ChunkingError(Exception):
