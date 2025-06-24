@@ -145,7 +145,7 @@ class BatchEmbeddingProcessor:
             raise ValueError("テキストリストが空です")
 
         if len(texts) > 1000:
-            raise ValueError("バッチサイズが制限を超えています（最大1000件）")
+            raise ValueError("バッチサイズが制限を超えています")
 
         start_time = time.time()
 
