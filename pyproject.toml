@@ -121,7 +121,9 @@ python_functions = [
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests", 
+    "unit: marks tests as unit tests",
+    "embeddings: marks tests as embedding service tests",
+    "tdd_red_phase: marks tests as TDD Red Phase tests",
     "performance: marks tests as performance tests",
 ]
 
