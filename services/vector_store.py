@@ -479,8 +479,19 @@ class VectorStore:
                     f"埋め込み数({len(embeddings)})とチャンク数({len(document_chunks)})が一致しません"
                 )
 
-            # 文書ID生成
+            # 先に文書レコードを作成
             document_id = str(uuid.uuid4())
+            
+            # documentsテーブルに親レコードを作成
+            if self.client:
+                self.client.table("documents").insert({
+                    "id": document_id,
+                    "filename": document_chunks[0].get("filename", "bulk_upload.pdf"),
+                    "original_filename": document_chunks[0].get("filename", "bulk_upload.pdf"),
+                    "file_size": sum(chunk.get("token_count", 0) for chunk in document_chunks) * 4,  # 概算
+                    "total_pages": max((chunk.get("page_number", 1) for chunk in document_chunks), default=1),
+                    "processing_status": "completed",
+                }).execute()
 
             # バルクレコード準備
             bulk_records = []
@@ -562,7 +573,7 @@ class VectorStore:
                 "match_documents",
                 {
                     "query_embedding": query_embedding,
-                    "match_threshold": 0.0,  # 閾値なしで全結果取得
+                    "match_threshold": 1.0,  # 閾値を緩く設定して全結果取得
                     "match_count": limit,
                 },
             ).execute()
