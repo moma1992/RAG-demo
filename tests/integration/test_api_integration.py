@@ -16,7 +16,7 @@ class TestEmbeddingServiceIntegration:
     
     def test_text_embedding_generation(self, mock_openai_client):
         """テキスト埋め込み生成統合テスト"""
-        service = EmbeddingService("test-api-key")
+        service = EmbeddingService("sk-test-api-key")
         text = "これはテスト用のサンプルテキストです。"
         
         result = service.create_embedding(text)

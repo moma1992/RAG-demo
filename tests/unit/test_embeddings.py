@@ -504,6 +504,109 @@ class TestErrorScenarios:
                 service.generate_embedding("test text")
 
 
+class TestSupabaseIntegration:
+    """Supabase統合テスト（Issue #48追加機能）"""
+    
+    @pytest.fixture
+    def service(self):
+        """テスト用EmbeddingServiceインスタンス"""
+        with patch('openai.OpenAI'):
+            return EmbeddingService("sk-test123456789")
+    
+    @patch('openai.OpenAI')
+    def test_store_embeddings_to_supabase(self, mock_openai):
+        """正常: Supabaseへの埋め込み保存"""
+        # OpenAI APIレスポンスモック
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536)]
+        mock_response.usage.total_tokens = 10
+        
+        mock_client = mock_openai.return_value
+        mock_client.embeddings.create.return_value = mock_response
+        
+        
+        service = EmbeddingService("sk-test123456789")
+        
+        # Supabase保存機能をテスト
+        with patch('services.embeddings.VectorStore') as mock_vector_store:
+            mock_store_instance = mock_vector_store.return_value
+            mock_store_instance.store_document.return_value = "test-doc-123"
+            mock_store_instance.store_chunks.return_value = ["chunk_uuid_1"]
+            
+            result = service.store_embeddings_to_supabase(
+                texts=["テストテキスト"],
+                supabase_url="https://test.supabase.co",
+                supabase_key="test-key",
+                document_id="test-doc-123"
+            )
+            
+            # 結果確認
+            assert isinstance(result, list)
+            assert len(result) == 1
+            assert result[0] == "chunk_uuid_1"
+            
+            # VectorStoreの呼び出し確認
+            mock_vector_store.assert_called_once_with("https://test.supabase.co", "test-key")
+            mock_store_instance.store_chunks.assert_called_once()
+    
+    @patch('openai.OpenAI')
+    def test_batch_store_embeddings_to_supabase(self, mock_openai):
+        """正常: バッチでSupabaseへの埋め込み保存"""
+        mock_response = Mock()
+        mock_response.data = [
+            Mock(embedding=[0.1] * 1536),
+            Mock(embedding=[0.2] * 1536)
+        ]
+        mock_response.usage.total_tokens = 20
+        
+        mock_client = mock_openai.return_value
+        mock_client.embeddings.create.return_value = mock_response
+        
+        
+        service = EmbeddingService("sk-test123456789")
+        
+        # バッチSupabase保存機能をテスト
+        with patch('services.embeddings.VectorStore') as mock_vector_store:
+            mock_store_instance = mock_vector_store.return_value
+            mock_store_instance.store_document.return_value = "test-doc-123"
+            mock_store_instance.store_chunks.return_value = ["chunk_uuid_1", "chunk_uuid_2"]
+            
+            result = service.batch_store_embeddings_to_supabase(
+                texts=["テキスト1", "テキスト2"],
+                supabase_url="https://test.supabase.co",
+                supabase_key="test-key",
+                document_id="test-doc-123"
+            )
+            
+            # 結果確認
+            assert isinstance(result, list)
+            assert len(result) == 2
+            assert result[0] == "chunk_uuid_1"
+            assert result[1] == "chunk_uuid_2"
+            
+            # VectorStoreの呼び出し確認
+            mock_vector_store.assert_called_once_with("https://test.supabase.co", "test-key")
+            mock_store_instance.store_chunks.assert_called_once()
+    
+    def test_supabase_store_with_invalid_params(self, service):
+        """異常: 無効なSupabaseパラメータ"""
+        with pytest.raises(ValueError, match="テキストリストが空です"):
+            service.store_embeddings_to_supabase(
+                texts=[],  # 空リスト
+                supabase_url="https://test.supabase.co",
+                supabase_key="test-key",
+                document_id="test-doc-123"
+            )
+        
+        with pytest.raises(ValueError, match="Supabaseパラメータが不正です"):
+            service.store_embeddings_to_supabase(
+                texts=["テストテキスト"],
+                supabase_url="",  # 空URL
+                supabase_key="test-key",
+                document_id="test-doc-123"
+            )
+
+
 class TestLoggingAndMonitoring:
     """ログ・監視テスト"""
     

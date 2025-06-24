@@ -24,6 +24,9 @@ from models.embedding import (
 # トークンカウントユーティリティ
 from utils.tokenizer import TokenCounter
 
+# Supabase統合用（Issue #48要件）
+from services.vector_store import VectorStore
+
 logger = logging.getLogger(__name__)
 
 # Issue #54専用のレスポンス時間追跡データクラス
@@ -423,6 +426,167 @@ class EmbeddingService:
             return 0.0
         
         return dot_product / (norm1 * norm2)
+    
+    def store_embeddings_to_supabase(
+        self,
+        texts: List[str],
+        supabase_url: str,
+        supabase_key: str,
+        document_id: str,
+        filename: str = "document.pdf"
+    ) -> List[str]:
+        """
+        埋め込みを生成してSupabaseに保存（Issue #48要件）
+        
+        Args:
+            texts: 埋め込み対象テキストリスト
+            supabase_url: Supabase URL
+            supabase_key: Supabase APIキー
+            document_id: 文書ID
+            filename: ファイル名
+            
+        Returns:
+            List[str]: 保存されたチャンクIDリスト
+            
+        Raises:
+            ValueError: 無効な入力パラメータの場合
+            EmbeddingError: 埋め込み生成またはSupabase保存エラーの場合
+        """
+        logger.info(f"Supabase埋め込み保存開始: {len(texts)}件のテキスト")
+        
+        # 入力検証
+        if not texts:
+            raise ValueError("テキストリストが空です")
+        
+        if not supabase_url or not supabase_key or not document_id:
+            raise ValueError("Supabaseパラメータが不正です")
+        
+        try:
+            # VectorStoreインスタンスを作成
+            vector_store = VectorStore(supabase_url, supabase_key)
+            
+            # 先に文書レコードを作成
+            document_data = {
+                "filename": filename,
+                "original_filename": filename,
+                "file_size": sum(len(text) for text in texts) * 4,  # 概算
+                "total_pages": len(texts),
+                "processing_status": "completed"
+            }
+            stored_doc_id = vector_store.store_document(document_data, document_id)
+            
+            # 各テキストの埋め込みを生成
+            embedding_results = []
+            chunk_data = []
+            
+            for i, text in enumerate(texts):
+                # 埋め込み生成
+                embedding_result = self.generate_embedding(text)
+                embedding_results.append(embedding_result)
+                
+                # チャンクデータ準備
+                chunk = {
+                    "content": text,
+                    "filename": filename,
+                    "page_number": i + 1,  # 仮のページ番号
+                    "token_count": embedding_result.token_count,
+                    "embedding": embedding_result.embedding
+                }
+                chunk_data.append(chunk)
+            
+            # Supabaseにチャンクを保存（提供されたdocument_idを使用）
+            chunk_ids = vector_store.store_chunks(chunk_data, stored_doc_id)
+            
+            logger.info(f"Supabase埋め込み保存完了: {len(chunk_ids)}件")
+            return chunk_ids
+            
+        except Exception as e:
+            logger.error(f"Supabase埋め込み保存エラー: {str(e)}", exc_info=True)
+            raise EmbeddingError(f"Supabase保存中にエラーが発生しました: {str(e)}") from e
+    
+    def batch_store_embeddings_to_supabase(
+        self,
+        texts: List[str],
+        supabase_url: str,
+        supabase_key: str,
+        document_id: str,
+        filename: str = "document.pdf",
+        batch_size: int = 100
+    ) -> List[str]:
+        """
+        バッチで埋め込みを生成してSupabaseに保存（Issue #48要件）
+        
+        Args:
+            texts: 埋め込み対象テキストリスト
+            supabase_url: Supabase URL
+            supabase_key: Supabase APIキー
+            document_id: 文書ID
+            filename: ファイル名
+            batch_size: バッチサイズ
+            
+        Returns:
+            List[str]: 保存されたチャンクIDリスト
+            
+        Raises:
+            ValueError: 無効な入力パラメータの場合
+            EmbeddingError: バッチ埋め込み生成またはSupabase保存エラーの場合
+        """
+        logger.info(f"Supabaseバッチ埋め込み保存開始: {len(texts)}件のテキスト")
+        
+        # 入力検証
+        if not texts:
+            raise ValueError("テキストリストが空です")
+        
+        if batch_size <= 0 or batch_size > 2048:
+            raise ValueError("バッチサイズが不正です（1-2048）")
+        
+        try:
+            # VectorStoreインスタンスを作成
+            vector_store = VectorStore(supabase_url, supabase_key)
+            
+            # 先に文書レコードを作成
+            document_data = {
+                "filename": filename,
+                "original_filename": filename,
+                "file_size": sum(len(text) for text in texts) * 4,  # 概算
+                "total_pages": len(texts),
+                "processing_status": "completed"
+            }
+            stored_doc_id = vector_store.store_document(document_data, document_id)
+            
+            all_chunk_ids = []
+            
+            # バッチごとに処理
+            for i in range(0, len(texts), batch_size):
+                batch_texts = texts[i:i+batch_size]
+                
+                # バッチ埋め込み生成
+                batch_result = self.generate_batch_embeddings(batch_texts)
+                
+                # チャンクデータ準備
+                chunk_data = []
+                for j, (text, embedding) in enumerate(zip(batch_texts, batch_result.embeddings)):
+                    chunk = {
+                        "content": text,
+                        "filename": filename,
+                        "page_number": i + j + 1,  # 連続ページ番号
+                        "token_count": self.token_counter.count_tokens(text),  # 正確なトークン数
+                        "embedding": embedding
+                    }
+                    chunk_data.append(chunk)
+                
+                # Supabaseにバッチ保存（提供されたdocument_idを使用）
+                batch_chunk_ids = vector_store.store_chunks(chunk_data, stored_doc_id)
+                all_chunk_ids.extend(batch_chunk_ids)
+                
+                logger.info(f"バッチ {i//batch_size + 1} 保存完了: {len(batch_texts)}件")
+            
+            logger.info(f"Supabaseバッチ埋め込み保存完了: {len(all_chunk_ids)}件")
+            return all_chunk_ids
+            
+        except Exception as e:
+            logger.error(f"Supabaseバッチ埋め込み保存エラー: {str(e)}", exc_info=True)
+            raise EmbeddingError(f"バッチSupabase保存中にエラーが発生しました: {str(e)}") from e
 
 
 class EmbeddingError(Exception):
