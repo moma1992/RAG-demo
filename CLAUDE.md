@@ -45,6 +45,47 @@ SUPABASE_PROJECT_REF=your_project_ref
 SUPABASE_ACCESS_TOKEN=your_personal_access_token
 ```
 
+### Claude Code コスト管理
+
+#### クイックスタート（推奨）
+インストールせずに直接実行します：
+```bash
+npx ccusage@latest
+```
+
+#### 使用法
+```bash
+# 基本使用法
+ccusage          # デイリーレポート表示（デフォルト）
+ccusage daily    # 日次トークン使用量とコスト
+ccusage monthly  # 月次集計レポート
+ccusage session  # 会話セッション別使用量
+ccusage blocks   # 5時間単位の課金ウィンドウ
+
+# リアルタイム監視
+ccusage blocks --live  # リアルタイム使用量ダッシュボード
+
+# フィルタとオプション
+ccusage daily --since 20250525 --until 20250530  # 期間指定
+ccusage daily --json                              # JSON出力
+ccusage daily --breakdown                         # モデル別コスト詳細
+```
+
+#### コスト最適化のベストプラクティス
+```bash
+# 開発開始前にコスト確認
+ccusage daily
+
+# セッション終了後にコスト追跡
+ccusage session
+
+# 月末にコスト総計確認
+ccusage monthly
+
+# リアルタイム監視（大量開発時）
+ccusage blocks --live
+```
+
 ## Technology Stack
 
 ### Core Technologies
