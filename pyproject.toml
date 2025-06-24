@@ -125,6 +125,7 @@ markers = [
     "embeddings: marks tests as embedding service tests",
     "tdd_red_phase: marks tests as TDD Red Phase tests",
     "performance: marks tests as performance tests",
+    "batch_processing: marks tests as batch processing tests",
 ]
 
 [tool.coverage.run]
