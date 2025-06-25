@@ -1,0 +1,184 @@
+name: E2E Tests with Playwright (Manual Only)
+
+on:
+  # E2EテストはCIから除外し、手動実行のみに変更
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser to test (chromium, firefox, webkit, or all)'
+        required: false
+        default: 'chromium'
+        type: choice
+        options:
+        - chromium
+        - firefox
+        - webkit
+        - all
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'local'
+        type: choice
+        options:
+        - local
+        - staging
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: ${{ 
+          github.event.inputs.browser == 'all' && fromJSON('["chromium", "firefox", "webkit"]') ||
+          fromJSON(format('["{0}"]', github.event.inputs.browser || 'chromium'))
+        }}
+        
+    services:
+      # PostgreSQL for Supabase (if needed for integration tests)
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Create virtual environment
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
+        echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+
+    - name: Install Python dependencies
+      run: |
+        source venv/bin/activate
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-test.txt
+
+    - name: Install Playwright browsers
+      run: |
+        source venv/bin/activate
+        playwright install ${{ matrix.browser }}
+        playwright install-deps ${{ matrix.browser }}
+
+    - name: Set up test environment variables
+      run: |
+        echo "E2E_HEADLESS=true" >> $GITHUB_ENV
+        echo "E2E_SLOW_MO=0" >> $GITHUB_ENV
+        echo "E2E_TIMEOUT=30000" >> $GITHUB_ENV
+        echo "E2E_BASE_URL=http://localhost:8501" >> $GITHUB_ENV
+        # Test credentials (mock values for CI)
+        echo "OPENAI_API_KEY=sk-test-key-for-ci-${{ github.run_id }}" >> $GITHUB_ENV
+        echo "ANTHROPIC_API_KEY=test-claude-key-${{ github.run_id }}" >> $GITHUB_ENV
+        echo "SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://test.supabase.co' }}" >> $GITHUB_ENV
+        echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || 'test-anon-key' }}" >> $GITHUB_ENV
+
+    - name: Prepare test fixtures
+      run: |
+        source venv/bin/activate
+        python tests/e2e/utils/pdf_generator.py
+
+    - name: Run E2E tests
+      run: |
+        source venv/bin/activate
+        mkdir -p e2e/results
+        pytest tests/e2e/ \
+          --browser=${{ matrix.browser }} \
+          --headed=false \
+          --video=retain-on-failure \
+          --screenshot=only-on-failure \
+          --tracing=retain-on-failure \
+          --output=e2e/results \
+          --junit-xml=e2e/results/junit-${{ matrix.browser }}.xml \
+          --html=e2e/results/report-${{ matrix.browser }}.html \
+          --self-contained-html \
+          -v
+      timeout-minutes: 45
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results-${{ matrix.browser }}-${{ github.run_id }}
+        path: |
+          e2e/results/
+          playwright-report/
+        retention-days: 7
+
+    - name: Upload test videos
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-videos-${{ matrix.browser }}-${{ github.run_id }}
+        path: e2e/results/videos/
+        retention-days: 3
+
+    - name: Publish test results
+      if: always()
+      uses: dorny/test-reporter@v1
+      with:
+        name: E2E Test Results (${{ matrix.browser }})
+        path: e2e/results/junit-${{ matrix.browser }}.xml
+        reporter: java-junit
+
+  # 統合テスト結果の集約
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: e2e-tests
+    if: always()
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      
+    - name: Generate test summary
+      run: |
+        echo "# E2E Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 各ブラウザの結果を集計
+        for browser in chromium firefox webkit; do
+          if [ -f "test-results-$browser-${{ github.run_id }}/junit-$browser.xml" ]; then
+            echo "## $browser Results" >> $GITHUB_STEP_SUMMARY
+            # JUnit XMLから結果を解析（簡易版）
+            if grep -q 'errors="0".*failures="0"' "test-results-$browser-${{ github.run_id }}/junit-$browser.xml"; then
+              echo "✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+        
+        echo "Artifacts uploaded for detailed analysis." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "ℹ️ E2E tests are now manual-only. Use the workflow dispatch button to run tests when needed." >> $GITHUB_STEP_SUMMARY

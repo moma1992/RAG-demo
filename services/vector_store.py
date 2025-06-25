@@ -428,7 +428,12 @@ class VectorStore:
             if enable_async:
                 try:
                     from supabase._async.client import create_client as create_async_client
-                    self.async_client = create_async_client(supabase_url, supabase_key)
+                    
+                    # 非同期クライアントの初期化を遅延実行に変更
+                    self.async_client = None
+                    self._async_client_future = None
+                    logger.info("非同期クライアントは必要時に初期化されます")
+                        
                 except ImportError:
                     self.async_client = None
                     logger.warning("非同期Supabaseクライアントが利用できません")
@@ -440,6 +445,23 @@ class VectorStore:
             self.async_client = None
 
         logger.info(f"VectorStore初期化完了: pool_size={self.pool_size}, async={enable_async}")
+
+    async def _get_async_client(self):
+        """
+        非同期クライアントを取得（遅延初期化対応）
+        
+        Returns:
+            非同期Supabaseクライアント
+        """
+        if self.async_client is None and self.enable_async:
+            try:
+                from supabase._async.client import create_client as create_async_client
+                self.async_client = create_async_client(self.supabase_url, self.supabase_key)
+                logger.info("非同期Supabaseクライアントを遅延初期化しました")
+            except ImportError:
+                logger.warning("非同期Supabaseクライアントが利用できません")
+                return None
+        return self.async_client
 
     @sync_retry(max_attempts=RETRY_ATTEMPTS)
     def store_document(self, document_data: Dict[str, Any], document_id: Optional[str] = None) -> str:
@@ -724,7 +746,7 @@ class VectorStore:
         try:
             # 接続プールから取得したクライアントを使用（フォールバック付き）
             if not client:
-                client = self.async_client if self.async_client else self.client
+                client = await self._get_async_client() if self.enable_async else self.client
             
             if not client:
                 raise VectorStoreError("Supabaseクライアントが初期化されていません")
@@ -836,7 +858,7 @@ class VectorStore:
         try:
             # 接続プールから取得したクライアントを使用（フォールバック付き）
             if not client:
-                client = self.async_client if self.async_client else self.client
+                client = await self._get_async_client() if self.enable_async else self.client
             
             if not client:
                 raise VectorStoreError("Supabaseクライアントが初期化されていません")
@@ -956,6 +978,187 @@ class VectorStore:
             "legacy_semaphore_count": self._connection_semaphore._value,
             "pool_enabled": True
         }
+    
+    def add_document(self, id: str, filename: str, original_filename: str, 
+                    file_size: int, total_pages: int, processing_status: str = "processing") -> str:
+        """
+        文書を追加（PDF uploader用インターフェース）
+        
+        Args:
+            id: 文書ID
+            filename: ファイル名
+            original_filename: 元のファイル名
+            file_size: ファイルサイズ
+            total_pages: ページ数
+            processing_status: 処理状態
+            
+        Returns:
+            str: 文書ID
+        """
+        document_data = {
+            "filename": filename,
+            "original_filename": original_filename,
+            "file_size": file_size,
+            "total_pages": total_pages,
+            "processing_status": processing_status
+        }
+        return self.store_document(document_data, document_id=id)
+    
+    def add_chunk(self, document_id: str, content: str, filename: str, 
+                 page_number: int, embedding: List[float], token_count: int,
+                 chapter_number: Optional[int] = None, section_name: Optional[str] = None,
+                 start_pos: Optional[Dict[str, float]] = None, 
+                 end_pos: Optional[Dict[str, float]] = None) -> str:
+        """
+        個別チャンクを追加（PDF uploader用インターフェース）
+        
+        Args:
+            document_id: 文書ID
+            content: チャンク内容
+            filename: ファイル名
+            page_number: ページ番号
+            embedding: 埋め込みベクトル
+            token_count: トークン数
+            chapter_number: 章番号（オプション）
+            section_name: セクション名（オプション）
+            start_pos: 開始位置（オプション）
+            end_pos: 終了位置（オプション）
+            
+        Returns:
+            str: チャンクID
+        """
+        chunk_data = {
+            "content": content,
+            "filename": filename,
+            "page_number": page_number,
+            "embedding": embedding,
+            "token_count": token_count,
+            "chapter_number": chapter_number,
+            "section_name": section_name,
+            "start_pos": start_pos,
+            "end_pos": end_pos
+        }
+        
+        # 単一チャンクをリストとして store_chunks に渡す
+        chunk_ids = self.store_chunks([chunk_data], document_id)
+        return chunk_ids[0] if chunk_ids else ""
+    
+    def add_document(self, document=None, chunks=None, **kwargs) -> str:
+        """
+        文書とチャンクを追加（複数呼び出し形式対応）
+        
+        Args:
+            document: 文書オブジェクト（新形式）
+            chunks: テキストチャンクリスト（新形式）
+            **kwargs: 旧形式の引数（id, filename, original_filename, file_size, total_pages, processing_status）
+            
+        Returns:
+            str: 文書ID
+            
+        Raises:
+            VectorStoreError: 追加処理でエラーが発生した場合
+        """
+        try:
+            # 旧形式の呼び出し（PDFアップローダーから）
+            if document is None and chunks is None and kwargs:
+                logger.info(f"文書追加開始（旧形式）: {kwargs.get('filename', 'unknown')}")
+                
+                # 文書データを準備
+                document_data = {
+                    "filename": kwargs.get("filename"),
+                    "original_filename": kwargs.get("original_filename", kwargs.get("filename")),
+                    "file_size": kwargs.get("file_size", 0),
+                    "total_pages": kwargs.get("total_pages", 1),
+                }
+                
+                # 指定されたIDを使用、なければ新規生成
+                document_id = kwargs.get("id")
+                if document_id is None:
+                    document_id = str(uuid.uuid4())
+                
+                # 文書を保存
+                self.store_document(document_data, document_id)
+                
+                # 文書状態を更新
+                status = kwargs.get("processing_status", "processing")
+                self.update_document_status(document_id, status)
+                
+                logger.info(f"文書追加完了（旧形式）: {document_id}")
+                return document_id
+            
+            # 新形式の呼び出し（文書オブジェクト + チャンク）
+            elif document is not None and chunks is not None:
+                logger.info(f"文書追加開始（新形式）: {document.filename}")
+                
+                # 文書データを準備
+                document_data = {
+                    "filename": document.filename,
+                    "original_filename": getattr(document, 'original_filename', document.filename),
+                    "file_size": getattr(document, 'file_size', 0),
+                    "total_pages": len(document.pages) if hasattr(document, 'pages') else 1,
+                }
+                
+                # 文書を保存
+                document_id = self.store_document(document_data, document.document_id)
+                
+                # チャンクデータを準備
+                chunk_data_list = []
+                for chunk in chunks:
+                    metadata = chunk.metadata
+                    chunk_data = {
+                        "document_id": document_id,
+                        "content": chunk.content,
+                        "filename": metadata.filename,
+                        "page_number": metadata.page_number,
+                        "chapter_number": metadata.chapter_number,
+                        "section_name": metadata.section_name,
+                        "start_pos": metadata.start_pos,
+                        "end_pos": metadata.end_pos,
+                        "token_count": metadata.token_count,
+                        # embeddings はここでは設定せず、後で設定
+                        "embedding": None
+                    }
+                    chunk_data_list.append(chunk_data)
+                
+                # チャンクを保存（埋め込みは後で設定）
+                chunk_ids = self.store_chunks(chunk_data_list, document_id)
+                
+                # 文書状態を更新
+                self.update_document_status(document_id, "processing")
+                
+                logger.info(f"文書追加完了（新形式）: {document_id}, chunks: {len(chunk_ids)}")
+                return document_id
+            
+            else:
+                raise VectorStoreError("add_document: 適切な引数が提供されていません")
+                
+        except Exception as e:
+            logger.error(f"文書追加エラー: {str(e)}", exc_info=True)
+            raise VectorStoreError(f"文書追加中にエラーが発生しました: {str(e)}") from e
+    
+    def update_document_status(self, document_id: str, status: str) -> None:
+        """
+        文書の処理状態を更新
+        
+        Args:
+            document_id: 文書ID
+            status: 新しい状態
+        """
+        logger.info(f"文書状態更新: {document_id} -> {status}")
+        
+        try:
+            if not self.client:
+                raise VectorStoreError("Supabaseクライアントが初期化されていません")
+            
+            self.client.table("documents").update({
+                "processing_status": status
+            }).eq("id", document_id).execute()
+            
+            logger.info(f"文書状態更新完了: {document_id}")
+            
+        except Exception as e:
+            logger.error(f"文書状態更新エラー: {str(e)}", exc_info=True)
+            raise VectorStoreError(f"文書状態更新中にエラーが発生しました: {str(e)}") from e
 
 
 class VectorStoreError(Exception):

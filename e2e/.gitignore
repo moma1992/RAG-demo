@@ -1,0 +1,30 @@
+# E2E Test Results
+results/
+*.webm
+*.mp4
+*.png
+*.jpg
+test-results/
+
+# Playwright
+playwright-report/
+playwright/.cache/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Generated fixtures
+fixtures/*.pdf
+fixtures/sample_*.pdf
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
