@@ -99,7 +99,7 @@ def process_uploaded_pdfs(uploaded_files: List, chunk_size: int, overlap_ratio: 
                 
                 # PDFを処理
                 pdf_processor = PDFProcessor()
-                extracted_data = pdf_processor.extract_text_with_structure(tmp_path)
+                extracted_data = pdf_processor.extract_text_from_pdf(Path(tmp_path))
                 
                 # 文書をデータベースに保存
                 document_id = str(uuid.uuid4())
@@ -120,8 +120,11 @@ def process_uploaded_pdfs(uploaded_files: List, chunk_size: int, overlap_ratio: 
                 
                 chunks = []
                 for page_num, page_data in enumerate(extracted_data.pages, 1):
+                    # TextBlocksからページ全体のテキストを結合
+                    page_text = "\n".join([block.content for block in page_data.text_blocks])
+                    
                     page_chunks = text_chunker.chunk_text(
-                        page_data.text,
+                        page_text,
                         metadata={
                             "page_number": page_num,
                             "filename": uploaded_file.name
