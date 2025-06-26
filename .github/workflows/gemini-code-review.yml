@@ -1,0 +1,478 @@
+name: Advanced Gemini CLI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # Smart path filtering for relevant changes
+    paths:
+      - "**/*.py"
+      - "tests/**/*"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "CLAUDE.md"
+      - "services/**/*"
+      - "components/**/*"
+      - "utils/**/*"
+
+jobs:
+  # Pre-analysis job to gather context
+  pre-analysis:
+    name: Code Analysis Context
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tech-stack: ${{ steps.analyze.outputs.tech-stack }}
+      complexity-score: ${{ steps.analyze.outputs.complexity-score }}
+      review-focus: ${{ steps.analyze.outputs.review-focus }}
+      changed-files: ${{ steps.analyze.outputs.changed-files }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Analyze codebase context
+        id: analyze
+        run: |
+          # Extract changed file types and technologies
+          CHANGED_FILES=$(git diff --name-only HEAD~1)
+          echo "Changed files: $CHANGED_FILES"
+          
+          # Detect technology stack
+          TECH_STACK=""
+          if echo "$CHANGED_FILES" | grep -q "\.py$"; then
+            TECH_STACK="$TECH_STACK,Python"
+          fi
+          if echo "$CHANGED_FILES" | grep -q "streamlit"; then
+            TECH_STACK="$TECH_STACK,Streamlit"
+          fi
+          if echo "$CHANGED_FILES" | grep -q "supabase\|vector"; then
+            TECH_STACK="$TECH_STACK,Vector-DB"
+          fi
+          if echo "$CHANGED_FILES" | grep -q "test_"; then
+            TECH_STACK="$TECH_STACK,Testing"
+          fi
+          
+          # Calculate complexity score based on file changes
+          COMPLEXITY_SCORE=$(echo "$CHANGED_FILES" | wc -l)
+          if [ $COMPLEXITY_SCORE -gt 10 ]; then
+            COMPLEXITY_SCORE="high"
+          elif [ $COMPLEXITY_SCORE -gt 5 ]; then
+            COMPLEXITY_SCORE="medium"
+          else
+            COMPLEXITY_SCORE="low"
+          fi
+          
+          # Set review focus based on changes
+          REVIEW_FOCUS="general"
+          if echo "$CHANGED_FILES" | grep -q "test_"; then
+            REVIEW_FOCUS="testing"
+          elif echo "$CHANGED_FILES" | grep -q "vector\|embedding\|search"; then
+            REVIEW_FOCUS="vector-search"
+          elif echo "$CHANGED_FILES" | grep -q "security\|auth"; then
+            REVIEW_FOCUS="security"
+          fi
+          
+          echo "tech-stack=$TECH_STACK" >> $GITHUB_OUTPUT
+          echo "complexity-score=$COMPLEXITY_SCORE" >> $GITHUB_OUTPUT
+          echo "review-focus=$REVIEW_FOCUS" >> $GITHUB_OUTPUT
+          echo "changed-files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  gemini-review:
+    name: Gemini CLI Code Review
+    needs: pre-analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Gemini CLI
+        run: |
+          npm install -g @google/gemini-cli
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
+
+      - name: Prepare review context
+        id: context
+        run: |
+          # Get changed files content
+          git diff --name-only HEAD~1 > changed_files.txt
+          
+          # Create context file for Gemini
+          cat > review_context.md << 'EOF'
+          # Code Review Context
+          
+          ## Pull Request Information
+          - PR Number: ${{ github.event.number }}
+          - PR Title: ${{ github.event.pull_request.title }}
+          - Author: ${{ github.event.pull_request.user.login }}
+          - Technology Stack: ${{ needs.pre-analysis.outputs.tech-stack }}
+          - Complexity Score: ${{ needs.pre-analysis.outputs.complexity-score }}
+          - Review Focus: ${{ needs.pre-analysis.outputs.review-focus }}
+          
+          ## Changed Files
+          ${{ needs.pre-analysis.outputs.changed-files }}
+          
+          ## Repository Context
+          This is a RAG (Retrieval-Augmented Generation) application built with:
+          - Frontend: Streamlit
+          - Vector Database: Supabase (PostgreSQL + pgvector)
+          - PDF Processing: PyMuPDF + spaCy
+          - Embeddings: OpenAI text-embedding-3-small
+          - LLM: Claude API (Anthropic)
+          - Framework: LangChain
+          EOF
+
+      - name: Generate file diffs
+        run: |
+          # Generate detailed diffs for review
+          git diff HEAD~1 --unified=5 > code_changes.diff
+          
+          # Create individual file contents for context
+          mkdir -p file_contents
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              echo "=== $file ===" > "file_contents/$(basename "$file").txt"
+              cat "$file" >> "file_contents/$(basename "$file").txt"
+            fi
+          done < changed_files.txt
+
+      - name: Run Gemini CLI Code Review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          # Create comprehensive review prompt
+          cat > review_prompt.md << 'EOF'
+          You are an expert code reviewer specializing in Python RAG applications. Please conduct a comprehensive code review of the following changes.
+          
+          ## Review Guidelines
+          
+          ### 🔍 Focus Areas Based on Analysis
+          **Technology Stack**: ${{ needs.pre-analysis.outputs.tech-stack }}
+          **Complexity Level**: ${{ needs.pre-analysis.outputs.complexity-score }}
+          **Review Focus**: ${{ needs.pre-analysis.outputs.review-focus }}
+          
+          ### 📋 Review Criteria
+          
+          #### 🚀 Performance & Scalability
+          - Vector search optimization for large document sets
+          - Memory management for PDF processing
+          - Database query efficiency with Supabase
+          - Response time requirements (target: <500ms for search)
+          - Caching strategies for embeddings and results
+          
+          #### 🔒 Security & Reliability
+          - Input validation and sanitization
+          - Error handling and user feedback
+          - API key and credential management
+          - Data privacy and security measures
+          - SQL injection prevention in vector queries
+          
+          #### 🧪 Testing & Quality Assurance
+          - Test coverage for new functionality
+          - Mock implementations for external APIs
+          - Edge case handling in PDF processing
+          - Integration test scenarios
+          - Error simulation and recovery testing
+          
+          #### 🏗️ Architecture & Design
+          - Code organization and modularity
+          - Dependency injection patterns
+          - Configuration management
+          - API design consistency
+          - Documentation completeness
+          
+          #### 🎯 RAG-Specific Considerations
+          - Chunk size and overlap optimization
+          - Embedding model compatibility
+          - Vector similarity search accuracy
+          - Context window management
+          - Citation and source tracking
+          
+          ### 📊 Review Output Format
+          
+          Please provide your review in the following format:
+          
+          ## 🔬 Code Review Summary
+          **Overall Assessment**: [Approve/Request Changes/Needs Work]
+          **Risk Level**: [Low/Medium/High]
+          **Complexity Score**: ${{ needs.pre-analysis.outputs.complexity-score }}
+          
+          ## ⚡ Performance Analysis
+          - **Strengths**: [Performance improvements identified]
+          - **Concerns**: [Performance issues or bottlenecks]
+          - **Recommendations**: [Specific optimization suggestions]
+          
+          ## 🛡️ Security Assessment
+          - **Security Strengths**: [Security measures implemented well]
+          - **Security Concerns**: [Potential vulnerabilities]
+          - **Security Recommendations**: [Security improvements needed]
+          
+          ## 🧪 Testing & Quality Review
+          - **Test Coverage**: [Assessment of test completeness]
+          - **Quality Strengths**: [Well-implemented aspects]
+          - **Quality Concerns**: [Code quality issues]
+          
+          ## 🏗️ Architecture Review
+          - **Design Strengths**: [Good architectural decisions]
+          - **Design Concerns**: [Architectural issues]
+          - **Refactoring Suggestions**: [Structural improvements]
+          
+          ## 🎯 RAG-Specific Review
+          - **RAG Implementation**: [Assessment of RAG-specific code]
+          - **Vector Search**: [Vector database usage review]
+          - **Document Processing**: [PDF processing and chunking review]
+          
+          ## 📋 Action Items
+          ### 🚨 Critical Issues (Must Fix)
+          - [ ] [Critical issue 1]
+          - [ ] [Critical issue 2]
+          
+          ### ⚠️ Important Issues (Should Fix)  
+          - [ ] [Important issue 1]
+          - [ ] [Important issue 2]
+          
+          ### 💡 Suggestions (Nice to Have)
+          - [ ] [Suggestion 1]
+          - [ ] [Suggestion 2]
+          
+          ## 🎓 Learning Opportunities
+          - **Best Practices**: [Development best practices highlighted]
+          - **Resources**: [Helpful documentation or examples]
+          - **Future Improvements**: [Long-term enhancement suggestions]
+          
+          Please analyze the code changes and provide a detailed review following this structure.
+          EOF
+          
+          # Run Gemini CLI with the review prompt and code context
+          echo "Starting Gemini CLI code review..."
+          
+          # Combine all context into a single prompt file
+          cat review_prompt.md > full_review_prompt.md
+          echo -e "\n\n## Code Changes to Review\n" >> full_review_prompt.md
+          cat review_context.md >> full_review_prompt.md
+          echo -e "\n\n## Detailed Code Diff\n\`\`\`diff" >> full_review_prompt.md
+          cat code_changes.diff >> full_review_prompt.md
+          echo -e "\n\`\`\`" >> full_review_prompt.md
+          
+          # Execute Gemini CLI review
+          gemini --prompt-file full_review_prompt.md --output-file gemini_review_output.md || {
+            echo "Gemini CLI review failed, creating fallback review"
+            cat > gemini_review_output.md << 'FALLBACK_EOF'
+          # 🤖 Gemini CLI Code Review
+          
+          ## Status
+          ⚠️ **Automated review encountered an issue**
+          
+          ## Manual Review Required
+          The Gemini CLI automated review could not be completed. Please ensure:
+          1. GEMINI_API_KEY is properly configured
+          2. API quota is available
+          3. Network connectivity is stable
+          
+          ## Files Changed
+          ${{ needs.pre-analysis.outputs.changed-files }}
+          
+          ## Technology Context
+          - **Stack**: ${{ needs.pre-analysis.outputs.tech-stack }}
+          - **Complexity**: ${{ needs.pre-analysis.outputs.complexity-score }}
+          - **Focus**: ${{ needs.pre-analysis.outputs.review-focus }}
+          
+          Please conduct manual code review focusing on the identified areas.
+          FALLBACK_EOF
+          }
+
+      - name: Post review comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            // Read the Gemini review output
+            let reviewContent;
+            try {
+              reviewContent = fs.readFileSync('gemini_review_output.md', 'utf8');
+            } catch (error) {
+              reviewContent = `# 🤖 Gemini CLI Code Review
+              
+              ## Error
+              Could not read review output file. Please check the workflow logs for details.
+              
+              ## Context
+              - **PR**: #${{ github.event.number }}
+              - **Technology Stack**: ${{ needs.pre-analysis.outputs.tech-stack }}
+              - **Complexity**: ${{ needs.pre-analysis.outputs.complexity-score }}
+              - **Focus Area**: ${{ needs.pre-analysis.outputs.review-focus }}
+              `;
+            }
+            
+            // Add header with context
+            const fullReview = `# 🤖 Gemini CLI Code Review
+            
+            **Automated Review for PR #${{ github.event.number }}**
+            
+            ## 📊 Analysis Context
+            - **Technology Stack**: ${{ needs.pre-analysis.outputs.tech-stack }}
+            - **Complexity Score**: ${{ needs.pre-analysis.outputs.complexity-score }}
+            - **Review Focus**: ${{ needs.pre-analysis.outputs.review-focus }}
+            - **Changed Files**: ${{ needs.pre-analysis.outputs.changed-files }}
+            
+            ---
+            
+            ${reviewContent}
+            
+            ---
+            
+            ## 🔧 Review Metadata
+            - **Reviewer**: Gemini CLI (Google AI)
+            - **Review Date**: ${new Date().toISOString()}
+            - **Workflow**: Advanced Gemini CLI Code Review
+            - **Version**: 1.0.0
+            
+            > This review was generated automatically using Gemini CLI. For questions about specific recommendations, please refer to the detailed analysis above or request human review.
+            `;
+            
+            // Post the review as a comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: fullReview
+            });
+
+      - name: Archive review artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-review-artifacts-${{ github.event.number }}
+          path: |
+            gemini_review_output.md
+            review_context.md
+            code_changes.diff
+            changed_files.txt
+            file_contents/
+          retention-days: 30
+
+  # Post-review analysis and metrics
+  review-metrics:
+    name: Review Metrics & Learning
+    needs: [pre-analysis, gemini-review]
+    runs-on: ubuntu-latest
+    if: always() # Run even if review fails to gather learning data
+    permissions:
+      contents: read
+      actions: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate review metrics
+        run: |
+          cat > review_metrics.json << EOF
+          {
+            "pr_number": "${{ github.event.number }}",
+            "pr_title": "${{ github.event.pull_request.title }}",
+            "pr_author": "${{ github.event.pull_request.user.login }}",
+            "tech_stack": "${{ needs.pre-analysis.outputs.tech-stack }}",
+            "complexity": "${{ needs.pre-analysis.outputs.complexity-score }}",
+            "focus_area": "${{ needs.pre-analysis.outputs.review-focus }}",
+            "review_status": "${{ needs.gemini-review.result }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "reviewer": "gemini-cli",
+            "workflow_version": "1.0.0"
+          }
+          EOF
+          
+          echo "📊 Review Metrics Generated"
+          cat review_metrics.json
+
+      - name: Create learning report
+        run: |
+          cat > learning_report.md << 'EOF'
+          # 🧠 Gemini CLI Review Learning Report
+          
+          ## Review Session Summary
+          - **PR Number**: ${{ github.event.number }}
+          - **Title**: ${{ github.event.pull_request.title }}
+          - **Author**: ${{ github.event.pull_request.user.login }}
+          - **Technology Stack**: ${{ needs.pre-analysis.outputs.tech-stack }}
+          - **Complexity Level**: ${{ needs.pre-analysis.outputs.complexity-score }}
+          - **Review Focus**: ${{ needs.pre-analysis.outputs.review-focus }}
+          - **Review Status**: ${{ needs.gemini-review.result }}
+          
+          ## Gemini CLI Analysis Scope
+          ### Technical Areas Covered
+          - Code quality and best practices
+          - Performance optimization opportunities
+          - Security vulnerability assessment
+          - Architecture and design patterns
+          - RAG-specific implementation review
+          
+          ### Review Methodology
+          - Automated context analysis
+          - Technology stack detection
+          - Complexity scoring
+          - Focused review based on change patterns
+          - Comprehensive diff analysis
+          
+          ## Key Insights
+          - **Automation Benefits**: Consistent review criteria application
+          - **Focus Areas**: Targeted analysis based on technology stack
+          - **Scalability**: Efficient review of complex RAG applications
+          - **Learning**: Continuous improvement through metrics collection
+          
+          ## Continuous Improvement Opportunities
+          - [ ] Enhance prompt engineering for better review quality
+          - [ ] Implement feedback loop for review accuracy
+          - [ ] Add integration with code quality tools
+          - [ ] Develop domain-specific review templates
+          
+          ## Resources and References
+          - Gemini CLI Documentation
+          - RAG Implementation Best Practices
+          - Python Code Review Guidelines
+          - Vector Database Optimization Techniques
+          EOF
+          
+          echo "📚 Learning report generated"
+
+      - name: Upload metrics artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-review-metrics-${{ github.event.number }}
+          path: |
+            review_metrics.json
+            learning_report.md
+          retention-days: 90
