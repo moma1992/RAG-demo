@@ -8,11 +8,41 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 import asyncio
 from datetime import datetime
+from types import SimpleNamespace
 
 from components.chat_interface import AdvancedChatInterface, chat_interface_component
 from models.chat import ChatSession, ChatMessage, DocumentReference, MessageRole
 from services.claude_llm import ClaudeService
 from services.vector_store import VectorStore
+
+
+class MockSessionState:
+    """Streamlit session_stateのモック"""
+    def __init__(self):
+        self._state = {}
+    
+    def __getattr__(self, key):
+        if key in self._state:
+            return self._state[key]
+        raise AttributeError(f"'MockSessionState' object has no attribute '{key}'")
+    
+    def __setattr__(self, key, value):
+        if key == "_state":
+            super().__setattr__(key, value)
+        else:
+            self._state[key] = value
+    
+    def __contains__(self, key):
+        return key in self._state
+    
+    def get(self, key, default=None):
+        return self._state.get(key, default)
+    
+    def __getitem__(self, key):
+        return self._state[key]
+    
+    def __setitem__(self, key, value):
+        self._state[key] = value
 
 
 class TestAdvancedChatInterface:
@@ -40,11 +70,11 @@ class TestAdvancedChatInterface:
     @pytest.fixture
     def mock_session_state(self):
         """モックセッション状態"""
-        return {
-            "chat_session": ChatSession(),
-            "chat_history": [],
-            "streaming_response": None
-        }
+        mock_state = MockSessionState()
+        mock_state.chat_session = ChatSession()
+        mock_state.chat_history = []
+        mock_state.streaming_response = None
+        return mock_state
     
     def test_initialization(self, mock_claude_service, mock_vector_store):
         """初期化テスト"""
@@ -54,7 +84,7 @@ class TestAdvancedChatInterface:
         assert interface.vector_store == mock_vector_store
         assert interface.citation_display is not None
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     def test_initialize_session_state(self, mock_session_state, chat_interface):
         """セッション状態初期化テスト"""
         chat_interface._initialize_session_state()
@@ -64,7 +94,7 @@ class TestAdvancedChatInterface:
         assert "streaming_response" in mock_session_state
         assert isinstance(mock_session_state["chat_session"], ChatSession)
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     @patch('streamlit.success')
     @patch('streamlit.rerun')
     def test_start_new_chat(self, mock_rerun, mock_success, mock_session_state, chat_interface):
@@ -86,7 +116,7 @@ class TestAdvancedChatInterface:
         mock_success.assert_called_once_with("新しいチャットを開始しました")
         mock_rerun.assert_called_once()
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     @patch('streamlit.success')
     @patch('streamlit.rerun')
     def test_clear_chat_history(self, mock_rerun, mock_success, mock_session_state, chat_interface):
@@ -111,19 +141,19 @@ class TestAdvancedChatInterface:
         """文書参照作成テスト"""
         # モック検索結果
         mock_result1 = Mock()
-        mock_result1.page_content = "これは短いコンテンツです"
+        mock_result1.filename = "test1.pdf"
+        mock_result1.page_number = 1
+        mock_result1.content = "これは短いコンテンツです"
         mock_result1.metadata = {
-            "filename": "test1.pdf",
-            "page_number": 1,
             "chunk_id": "chunk-001"
         }
         mock_result1.similarity_score = 0.95
         
         mock_result2 = Mock()
-        mock_result2.page_content = "これは非常に長いコンテンツです。" * 20  # 200文字超
+        mock_result2.filename = "test2.pdf"
+        mock_result2.page_number = 5
+        mock_result2.content = "これは非常に長いコンテンツです。" * 20  # 200文字超
         mock_result2.metadata = {
-            "filename": "test2.pdf",
-            "page_number": 5,
             "chunk_id": "chunk-002"
         }
         mock_result2.similarity_score = 0.87
@@ -151,7 +181,7 @@ class TestAdvancedChatInterface:
         assert len(ref2.excerpt) <= 203  # 200文字 + "..."
         assert ref2.excerpt.endswith("...")
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     def test_prepare_chat_history(self, mock_session_state, chat_interface):
         """チャット履歴準備テスト"""
         # セッションに複数のメッセージを追加
@@ -178,7 +208,7 @@ class TestAdvancedChatInterface:
             assert msg.role == "user"
             assert msg.content == f"ユーザーメッセージ{i + 5}"  # 5番目から8番目のメッセージ
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     def test_prepare_chat_history_few_messages(self, mock_session_state, chat_interface):
         """少数メッセージでの履歴準備テスト"""
         session = ChatSession()
@@ -193,7 +223,7 @@ class TestAdvancedChatInterface:
         assert len(chat_history) == 1
         assert chat_history[0].content == "メッセージ1"
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     @patch('streamlit.metric')
     @patch('streamlit.markdown')
     def test_display_chat_statistics(self, mock_markdown, mock_metric, mock_session_state, chat_interface):
@@ -264,7 +294,7 @@ class TestAdvancedChatInterface:
 class TestLegacyChatInterface:
     """レガシーチャットインターフェーステスト"""
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     @patch('streamlit.subheader')
     @patch('streamlit.chat_input')
     def test_chat_interface_component_no_input(self, mock_chat_input, mock_subheader, mock_session_state):
@@ -278,7 +308,7 @@ class TestLegacyChatInterface:
         assert "chat_history" in mock_session_state
         assert mock_session_state["chat_history"] == []
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     @patch('streamlit.subheader')
     @patch('streamlit.chat_input')
     @patch('streamlit.chat_message')
@@ -300,7 +330,7 @@ class TestLegacyChatInterface:
             "content": user_input
         }
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     @patch('streamlit.subheader')
     @patch('streamlit.chat_input')
     @patch('streamlit.chat_message')
@@ -350,13 +380,16 @@ class TestChatInterfaceIntegration:
         
         # ベクター検索のモック
         mock_result = Mock()
-        mock_result.page_content = "テストコンテンツ"
-        mock_result.metadata = {"filename": "test.pdf", "page_number": 1}
+        mock_result.filename = "test.pdf"
+        mock_result.page_number = 1
+        mock_result.content = "テストコンテンツ"
+        mock_result.metadata = {"chunk_id": "chunk-test"}
+        mock_result.similarity_score = 0.9
         vector_store.similarity_search = Mock(return_value=[mock_result])
         
         return claude_service, vector_store
     
-    @patch('components.chat_interface.st.session_state', new_callable=dict)
+    @patch('components.chat_interface.st.session_state', new_callable=MockSessionState)
     def test_full_chat_flow_integration(self, mock_session_state, mock_services):
         """完全なチャットフロー統合テスト"""
         claude_service, vector_store = mock_services
@@ -367,8 +400,10 @@ class TestChatInterfaceIntegration:
         
         # 文書参照作成テスト
         mock_result = Mock()
-        mock_result.page_content = "統合テストコンテンツ"
-        mock_result.metadata = {"filename": "integration.pdf", "page_number": 10}
+        mock_result.filename = "integration.pdf"
+        mock_result.page_number = 10
+        mock_result.content = "統合テストコンテンツ"
+        mock_result.metadata = {"chunk_id": "chunk-test"}
         mock_result.similarity_score = 0.9
         
         references = interface._create_document_references([mock_result])

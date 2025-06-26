@@ -39,6 +39,15 @@ class TextChunk:
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
+@dataclass
+class SimpleChunk:
+    """シンプルチャンク（PDF uploader用）"""
+    content: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    token_count: int = 0
+    chunk_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+
 class TextChunker:
     """テキストチャンク分割クラス"""
     
@@ -245,6 +254,68 @@ class TextChunker:
             overlapped_chunks.append(current_chunk)
         
         return overlapped_chunks
+    
+    def chunk_text(self, text: str, metadata: Dict[str, Any] = None) -> List['SimpleChunk']:
+        """
+        シンプルなテキストチャンク分割（PDF uploader用インターフェース）
+        
+        Args:
+            text: 分割対象のテキスト
+            metadata: チャンクメタデータ
+            
+        Returns:
+            List[SimpleChunk]: 分割されたチャンクリスト
+        """
+        if not text.strip():
+            return []
+        
+        # デフォルトメタデータ
+        if metadata is None:
+            metadata = {}
+        
+        # spaCyで文境界を検出
+        doc = self.nlp(text)
+        sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+        
+        if not sentences:
+            return []
+        
+        chunks = []
+        current_chunk = ""
+        current_tokens = 0
+        
+        for sentence in sentences:
+            sentence_tokens = self.count_tokens(sentence)
+            
+            # チャンクサイズ制限チェック
+            if current_tokens + sentence_tokens > self.chunk_size and current_chunk:
+                # 現在のチャンクを確定
+                chunk = SimpleChunk(
+                    content=current_chunk.strip(),
+                    metadata=metadata.copy(),
+                    token_count=current_tokens
+                )
+                chunks.append(chunk)
+                
+                # 新しいチャンクを開始
+                current_chunk = sentence
+                current_tokens = sentence_tokens
+            else:
+                # チャンクに文を追加
+                current_chunk += f" {sentence}" if current_chunk else sentence
+                current_tokens += sentence_tokens
+        
+        # 最後のチャンクを追加
+        if current_chunk.strip():
+            chunk = SimpleChunk(
+                content=current_chunk.strip(),
+                metadata=metadata.copy(),
+                token_count=current_tokens
+            )
+            chunks.append(chunk)
+        
+        logger.info(f"テキストチャンク分割完了: {len(chunks)}個のチャンクを生成")
+        return chunks
     
     def _extract_overlap_text(self, text: str, target_tokens: int) -> str:
         """

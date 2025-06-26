@@ -239,18 +239,21 @@ class PDFProcessor:
                 page = self._extract_page_text(pdf_doc[page_num], page_num + 1)
                 pages.append(page)
             
+            # ページ数を事前に取得（document close前）
+            page_count = pdf_doc.page_count
+            
             # Document作成
             document = Document(
                 filename=pdf_path.stem,
                 original_filename=pdf_path.name,
-                total_pages=pdf_doc.page_count,
+                total_pages=page_count,
                 pages=pages,
                 metadata=metadata,
                 processing_status="completed"
             )
             
             pdf_doc.close()
-            logger.info(f"PDF処理完了: {pdf_path.name}, {pdf_doc.page_count}ページ")
+            logger.info(f"PDF処理完了: {pdf_path.name}, {page_count}ページ")
             return document
             
         except Exception as e:

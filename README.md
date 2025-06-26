@@ -100,6 +100,7 @@ bandit -r .
 
 ### テスト実行
 
+#### 単体テスト
 ```bash
 # 全テスト実行
 pytest
@@ -109,6 +110,20 @@ pytest --cov=. --cov-report=html
 
 # 特定のテストファイル実行
 pytest tests/test_pdf_processor.py
+```
+
+#### E2Eテスト（ローカルのみ）
+```bash
+# E2E環境セットアップ
+./e2e/scripts/setup_e2e.sh
+
+# E2Eテスト実行（要：Streamlitアプリ起動）
+./e2e/scripts/run_e2e_tests.sh
+
+# 特定ブラウザで実行
+./e2e/scripts/run_e2e_tests.sh firefox
+
+# 詳細は e2e/README.md を参照
 ```
 
 ## 📋 必要な環境変数

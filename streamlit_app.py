@@ -2,10 +2,11 @@
 新入社員向け社内文書検索RAGアプリケーション - メインアプリケーション
 
 このモジュールはStreamlitを使用したRAGアプリケーションのメインエントリーポイントです。
+Issue #66: 高度なチャットインターフェースとバックエンドサービスの統合
 """
 
 import streamlit as st
-from typing import Optional
+from typing import Optional, List
 import logging
 import os
 from dotenv import load_dotenv
@@ -20,6 +21,11 @@ from components.document_manager import document_manager_component
 from services.claude_llm import ClaudeService
 from services.vector_store import VectorStore
 from services.embeddings import EmbeddingService
+from utils.streamlit_helpers import (
+    get_user_friendly_error_message, 
+    display_service_status_indicator,
+    handle_api_errors
+)
 
 # ログ設定
 logging.basicConfig(
@@ -40,64 +46,131 @@ def main() -> None:
     st.title("📚 社内文書検索RAGシステム")
     st.markdown("新入社員向け社内文書検索アプリケーション")
     
+    # サービス初期化確認
+    services_ready = check_and_initialize_services()
+    
     # サイドバー
     with st.sidebar:
         st.header("📋 メニュー")
+        
+        # サービス状態表示
+        display_service_status_indicator(services_ready)
+        
         page = st.radio(
             "ページを選択:",
-            ["チャット", "文書管理", "設定"]
+            ["チャット", "文書管理", "PDFアップロード", "設定"]
         )
     
     # メインコンテンツ
     if page == "チャット":
-        show_chat_page()
+        show_chat_page(services_ready)
     elif page == "文書管理":
-        show_document_management_page()
+        show_document_management_page(services_ready)
+    elif page == "PDFアップロード":
+        show_pdf_upload_page(services_ready)
     elif page == "設定":
         show_settings_page()
 
-def show_chat_page() -> None:
-    """チャットページ表示"""
+def check_and_initialize_services() -> dict:
+    """サービスの初期化と状態確認"""
+    services_status = {
+        "openai_api": False,
+        "claude_api": False,
+        "supabase": False,
+        "vector_store": False,
+        "embedding_service": False,
+        "claude_service": False
+    }
+    
     try:
-        # APIキーの確認
-        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        # OpenAI API確認
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            services_status["openai_api"] = True
         
-        if not all([anthropic_api_key, supabase_url, supabase_anon_key, openai_api_key]):
-            st.error("⚠️ 必要な環境変数が設定されていません")
-            st.info("以下の環境変数を.envファイルに設定してください:")
-            st.code("""
-ANTHROPIC_API_KEY=your_claude_api_key
-SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
-OPENAI_API_KEY=your_openai_api_key
-            """)
+        # Claude API確認
+        claude_key = os.getenv("ANTHROPIC_API_KEY")
+        if claude_key:
+            services_status["claude_api"] = True
+        
+        # Supabase確認
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_ANON_KEY")
+        if supabase_url and supabase_key:
+            services_status["supabase"] = True
+            
+            # VectorStoreサービス初期化
+            if "vector_store" not in st.session_state and services_status["supabase"]:
+                try:
+                    from services.vector_store import VectorStore
+                    st.session_state.vector_store = VectorStore(
+                        supabase_url=supabase_url,
+                        supabase_key=supabase_key
+                    )
+                    services_status["vector_store"] = True
+                    logger.info("VectorStore初期化完了")
+                except Exception as e:
+                    logger.error(f"VectorStore初期化エラー: {str(e)}")
+            elif "vector_store" in st.session_state:
+                services_status["vector_store"] = True
+            
+            # EmbeddingService初期化
+            if "embedding_service" not in st.session_state and services_status["openai_api"]:
+                try:
+                    from services.embeddings import EmbeddingService
+                    st.session_state.embedding_service = EmbeddingService(api_key=openai_key)
+                    services_status["embedding_service"] = True
+                    logger.info("EmbeddingService初期化完了")
+                except Exception as e:
+                    logger.error(f"EmbeddingService初期化エラー: {str(e)}")
+            elif "embedding_service" in st.session_state:
+                services_status["embedding_service"] = True
+            
+            # ClaudeService初期化
+            if "claude_service" not in st.session_state and services_status["claude_api"]:
+                try:
+                    from services.claude_llm import ClaudeService
+                    st.session_state.claude_service = ClaudeService(api_key=claude_key)
+                    services_status["claude_service"] = True
+                    logger.info("ClaudeService初期化完了")
+                except Exception as e:
+                    logger.error(f"ClaudeService初期化エラー: {str(e)}")
+            elif "claude_service" in st.session_state:
+                services_status["claude_service"] = True
+        
+    except Exception as e:
+        logger.error(f"サービス初期化エラー: {str(e)}")
+        st.error(get_user_friendly_error_message(e))
+    
+    return services_status
+
+def show_chat_page(services_ready: dict) -> None:
+    """チャットページ表示"""
+    st.header("💬 文書検索チャット")
+    
+    try:
+        # サービス状態確認
+        required_services = ["vector_store", "embedding_service", "claude_service"]
+        missing_services = [s for s in required_services if not services_ready.get(s, False)]
+        
+        if missing_services:
+            st.error(f"チャット機能の利用には以下のサービスが必要です: {', '.join(missing_services)}")
+            st.info("設定ページでAPIキーを確認してください。")
             return
         
         # サービスの初期化
-        if "chat_services_initialized" not in st.session_state:
+        if "chat_interface" not in st.session_state:
             try:
-                claude_service = ClaudeService(api_key=anthropic_api_key)
-                vector_store = VectorStore(
-                    supabase_url=supabase_url,
-                    supabase_key=supabase_anon_key
+                chat_interface = AdvancedChatInterface(
+                    st.session_state.claude_service,
+                    st.session_state.vector_store,
+                    st.session_state.embedding_service
                 )
-                embedding_service = EmbeddingService(api_key=openai_api_key)
-                
-                chat_interface = AdvancedChatInterface(claude_service, vector_store, embedding_service)
-                
-                st.session_state.claude_service = claude_service
-                st.session_state.vector_store = vector_store
-                st.session_state.embedding_service = embedding_service
                 st.session_state.chat_interface = chat_interface
-                st.session_state.chat_services_initialized = True
-                
-                st.success("✅ サービスが正常に初期化されました")
+                st.success("✅ チャットインターフェースが初期化されました")
                 
             except Exception as e:
-                st.error(f"❌ サービス初期化エラー: {str(e)}")
+                st.error(f"❌ チャットインターフェース初期化エラー: {str(e)}")
                 st.info("デモモードとして基本的なチャット機能を表示します")
                 # レガシーチャットインターフェースを表示
                 user_input = chat_interface_component()
@@ -119,7 +192,60 @@ OPENAI_API_KEY=your_openai_api_key
             st.chat_message("assistant").write(f"入力を受け取りました: {user_input}")
             st.info("本来はここでRAG検索と Claude API による回答生成が行われます。")
 
-def show_document_management_page() -> None:
+@handle_api_errors
+def generate_response(query: str, services_ready: dict) -> Optional[List]:
+    """回答生成処理"""
+    try:
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            
+            # ローディング表示
+            with st.spinner("関連文書を検索中..."):
+                # 埋め込み生成
+                embedding_service = st.session_state.embedding_service
+                embedding_result = embedding_service.generate_embedding(query)
+                
+                # ベクター検索
+                vector_store = st.session_state.vector_store
+                search_results = vector_store.similarity_search(
+                    embedding_result.embedding, k=5
+                )
+            
+            # コンテキスト準備
+            context_chunks = []
+            sources = []
+            
+            for result in search_results:
+                context_chunks.append(result.content)
+                source_info = f"{result.filename} (ページ {result.page_number})"
+                sources.append(source_info)
+            
+            # Claude回答生成
+            with st.spinner("回答を生成中..."):
+                claude_service = st.session_state.claude_service
+                response = claude_service.generate_response(
+                    query=query,
+                    context_chunks=context_chunks
+                )
+            
+            # 回答表示
+            message_placeholder.markdown(response.content)
+            
+            # アシスタントメッセージを履歴に追加
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": response.content,
+                "sources": sources
+            })
+            
+            return search_results
+        
+    except Exception as e:
+        logger.error(f"回答生成エラー: {str(e)}")
+        st.error(f"回答生成中にエラーが発生しました: {str(e)}")
+        return None
+
+def show_document_management_page(services_ready: dict) -> None:
     """文書管理ページ表示"""
     st.header("📄 文書管理")
     
@@ -148,70 +274,75 @@ def show_document_management_page() -> None:
         with col3:
             st.metric("インデックス済み", "0", "件")
 
+def show_pdf_upload_page(services_ready: dict) -> None:
+    """PDFアップロードページ表示"""
+    st.header("📄 PDFアップロード")
+    pdf_uploader_component()
+
 def show_settings_page() -> None:
     """設定ページ表示"""
     st.header("⚙️ 設定")
     
-    st.subheader("🔑 API設定")
+    st.subheader("📋 API設定")
     
-    # 環境変数の状態を確認
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    supabase_url = os.getenv("SUPABASE_URL") 
+    # 環境変数の状態表示
+    st.markdown("### 現在の設定状態")
+    
+    openai_key = os.getenv("OPENAI_API_KEY")
+    claude_key = os.getenv("ANTHROPIC_API_KEY")
+    supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_ANON_KEY")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("📊 設定状況")
-        st.write("**Anthropic API Key:**", "✅ 設定済み" if anthropic_key else "❌ 未設定")
-        st.write("**Supabase URL:**", "✅ 設定済み" if supabase_url else "❌ 未設定")
-        st.write("**Supabase Key:**", "✅ 設定済み" if supabase_key else "❌ 未設定")
+        st.markdown("**OpenAI API Key:**")
+        if openai_key:
+            st.success("✅ 設定済み")
+        else:
+            st.error("❌ 未設定")
+        
+        st.markdown("**Claude API Key:**")
+        if claude_key:
+            st.success("✅ 設定済み")
+        else:
+            st.error("❌ 未設定")
     
     with col2:
-        st.subheader("⚙️ アプリケーション設定")
+        st.markdown("**Supabase URL:**")
+        if supabase_url:
+            st.success("✅ 設定済み")
+        else:
+            st.error("❌ 未設定")
         
-        # チャット設定
-        st.write("**チャット設定**")
-        max_messages = st.slider("履歴保持メッセージ数", 5, 20, 10)
-        show_citations = st.checkbox("引用表示", True)
-        streaming_enabled = st.checkbox("ストリーミング表示", True)
-        
-        # 検索設定
-        st.write("**検索設定**")
-        similarity_threshold = st.slider("類似度閾値", 0.0, 1.0, 0.7, 0.1)
-        max_results = st.slider("最大検索結果数", 1, 10, 5)
+        st.markdown("**Supabase Key:**")
+        if supabase_key:
+            st.success("✅ 設定済み")
+        else:
+            st.error("❌ 未設定")
     
-    st.subheader("📋 環境変数設定手順")
-    st.info("環境変数は.envファイルで設定してください:")
+    st.markdown("### 📄 設定方法")
+    st.markdown("""
+    1. プロジェクトルートに `.env` ファイルを作成
+    2. 以下の環境変数を設定:
     
-    st.code("""
-# .envファイルの例
-ANTHROPIC_API_KEY=your_claude_api_key_here
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your_supabase_anon_key_here
+    ```
+    OPENAI_API_KEY=your_openai_api_key
+    ANTHROPIC_API_KEY=your_claude_api_key
+    SUPABASE_URL=your_supabase_url
+    SUPABASE_ANON_KEY=your_supabase_anon_key
+    ```
+    
+    3. アプリケーションを再起動
     """)
     
-    # 実装状況
-    st.subheader("🏗️ 実装状況")
-    
-    features = [
-        ("チャット履歴管理", "✅", "完了"),
-        ("Claude APIストリーミング", "✅", "完了"),
-        ("引用表示機能", "✅", "完了"),
-        ("高度なチャットUI", "✅", "完了"),
-        ("PDF アップロード", "🔄", "一部実装"),
-        ("ベクター検索", "🔄", "一部実装"),
-        ("文書管理", "🔄", "一部実装"),
-    ]
-    
-    for feature, status, description in features:
-        col1, col2, col3 = st.columns([3, 1, 2])
-        with col1:
-            st.write(feature)
-        with col2:
-            st.write(status)
-        with col3:
-            st.write(description)
+    # チャット履歴クリア
+    st.markdown("### 🗑️ データ管理")
+    if st.button("チャット履歴をクリア", type="secondary"):
+        if "chat_history" in st.session_state:
+            st.session_state.chat_history = []
+            st.success("チャット履歴をクリアしました")
+            st.rerun()
 
 if __name__ == "__main__":
     main()

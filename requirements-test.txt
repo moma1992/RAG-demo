@@ -1,0 +1,28 @@
+# E2E Testing Dependencies
+pytest>=7.4.0
+pytest-playwright>=0.4.0
+playwright>=1.40.0
+pytest-asyncio>=0.21.0
+pytest-xdist>=3.3.0  # Parallel test execution
+
+# Mocking & Test Utilities
+pytest-mock>=3.11.0
+responses>=0.23.0
+factory-boy>=3.3.0
+freezegun>=1.2.0
+
+# Test Coverage & Reporting
+pytest-cov>=4.1.0
+pytest-html>=3.2.0
+allure-pytest>=2.13.0
+
+# Performance Testing
+pytest-benchmark>=4.0.0
+locust>=2.16.0
+
+# Visual Testing (Optional)
+pytest-playwright-visual>=0.0.9
+
+# Development & Debugging
+pytest-sugar>=0.9.7  # Better test output
+pytest-clarity>=1.0.1  # Better assertion failures
