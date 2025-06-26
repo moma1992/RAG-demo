@@ -1,0 +1,75 @@
+name: Test Gemini API Key
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  test-api:
+    name: Test Gemini API Key
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Gemini CLI
+        run: |
+          npm install -g @google/gemini-cli
+          echo "Gemini CLI installed successfully"
+
+      - name: Test API Key with curl
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "🔍 Testing Gemini API Key with direct HTTP request"
+          
+          # Test with simple API call
+          response=$(curl -s -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -d '{"contents":[{"parts":[{"text":"Hello, test"}]}]}' \
+            -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}")
+          
+          http_code="${response: -3}"
+          response_body="${response%???}"
+          
+          echo "HTTP Status: $http_code"
+          echo "Response: $response_body" | head -10
+          
+          if [ "$http_code" = "200" ]; then
+            echo "✅ API Key is working correctly"
+          elif [ "$http_code" = "429" ]; then
+            echo "⚠️ API quota exceeded (Rate limit)"
+          elif [ "$http_code" = "403" ]; then
+            echo "❌ Permission denied - API Key may be invalid"
+          else
+            echo "❓ Unexpected response: $http_code"
+          fi
+
+      - name: Test with Gemini CLI
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "🧪 Testing with Gemini CLI"
+          echo "API Key length: ${#GEMINI_API_KEY}"
+          echo "API Key prefix: ${GEMINI_API_KEY:0:15}..."
+          
+          # Test simple prompt
+          echo "Testing Gemini CLI with simple prompt..."
+          echo "What is 2+2?" | timeout 60 gemini 2>&1 | head -20 || echo "Command failed or timed out"
+
+      - name: Check API quota status
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "📊 Checking API quota/usage information"
+          
+          # Try to get model info (lighter request)
+          curl -s \
+            "https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}" \
+            | head -30 || echo "Failed to get model info"
