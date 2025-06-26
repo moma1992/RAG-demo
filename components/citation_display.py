@@ -7,8 +7,19 @@
 import streamlit as st
 from typing import List, Dict, Any, Optional
 import logging
+from dataclasses import dataclass
+from models.chat import DocumentReference
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CitationGroup:
+    """引用グループ"""
+    filename: str
+    references: List[DocumentReference]
+    total_score: float
+    page_numbers: List[int]
 
 
 class CitationDisplay:
@@ -23,31 +34,64 @@ class CitationDisplay:
         """
         self.theme = theme
     
-    def display_compact_references(
+    def display_references(
         self, 
-        search_results: List[Any]
+        references: List[DocumentReference],
+        show_similarity_scores: bool = True,
+        show_excerpts: bool = True,
+        max_excerpt_length: int = 200
     ) -> None:
         """
-        検索結果からコンパクトな引用表示
+        文書参照を表示
         
         Args:
-            search_results: ベクター検索結果
+            references: 文書参照リスト
+            show_similarity_scores: 類似度スコア表示フラグ
+            show_excerpts: 抜粋表示フラグ
+            max_excerpt_length: 抜粋最大文字数
         """
-        if not search_results:
+        if not references:
             st.info("参照文書はありません")
+            return
+        
+        try:
+            # ファイル別にグループ化
+            citation_groups = self._group_references_by_file(references)
+            
+            # グループ別に表示
+            for group in citation_groups:
+                self._display_citation_group(
+                    group, 
+                    show_similarity_scores, 
+                    show_excerpts, 
+                    max_excerpt_length
+                )
+                
+        except Exception as e:
+            logger.error(f"引用表示エラー: {str(e)}")
+            st.error("引用情報の表示中にエラーが発生しました")
+    
+    def display_compact_references(
+        self, 
+        references: List[DocumentReference]
+    ) -> None:
+        """
+        コンパクトな引用表示
+        
+        Args:
+            references: 文書参照リスト
+        """
+        if not references:
             return
         
         try:
             # ファイル名とページ番号のリストを作成
             file_info = {}
-            for result in search_results:
-                filename = result.filename
-                page_number = result.page_number
-                
-                if filename not in file_info:
-                    file_info[filename] = []
-                if page_number not in file_info[filename]:
-                    file_info[filename].append(page_number)
+            for ref in references:
+                if ref.filename not in file_info:
+                    file_info[ref.filename] = []
+                if ref.page_number not in file_info[ref.filename]:
+                    file_info[ref.filename].append(ref.page_number)
             
             # コンパクト表示
             citation_text = []
@@ -64,50 +108,139 @@ class CitationDisplay:
         except Exception as e:
             logger.error(f"コンパクト引用表示エラー: {str(e)}")
     
-    def display_detailed_references(
-        self,
-        search_results: List[Any],
-        show_similarity_scores: bool = True,
-        show_excerpts: bool = True,
-        max_excerpt_length: int = 200
+    def display_similarity_histogram(
+        self, 
+        references: List[DocumentReference]
     ) -> None:
         """
-        詳細な引用表示
+        類似度スコアのヒストグラム表示
         
         Args:
-            search_results: ベクター検索結果
+            references: 文書参照リスト
+        """
+        if not references:
+            return
+        
+        try:
+            scores = [ref.similarity_score for ref in references]
+            
+            # ヒストグラム用のデータ準備
+            score_ranges = ["0.9-1.0", "0.8-0.9", "0.7-0.8", "0.6-0.7", "0.5-0.6", "0.4-0.5"]
+            counts = [0] * 6
+            
+            for score in scores:
+                if score >= 0.9:
+                    counts[0] += 1
+                elif score >= 0.8:
+                    counts[1] += 1
+                elif score >= 0.7:
+                    counts[2] += 1
+                elif score >= 0.6:
+                    counts[3] += 1
+                elif score >= 0.5:
+                    counts[4] += 1
+                else:
+                    counts[5] += 1
+            
+            # Streamlitのバーチャート表示
+            chart_data = {
+                "類似度範囲": score_ranges,
+                "文書数": counts
+            }
+            
+            st.subheader("類似度分布")
+            st.bar_chart(chart_data)
+            
+        except Exception as e:
+            logger.error(f"ヒストグラム表示エラー: {str(e)}")
+    
+    def _group_references_by_file(
+        self, 
+        references: List[DocumentReference]
+    ) -> List[CitationGroup]:
+        """
+        文書参照をファイル別にグループ化
+        
+        Args:
+            references: 文書参照リスト
+            
+        Returns:
+            List[CitationGroup]: グループ化された引用
+        """
+        file_groups = {}
+        
+        for ref in references:
+            if ref.filename not in file_groups:
+                file_groups[ref.filename] = []
+            file_groups[ref.filename].append(ref)
+        
+        citation_groups = []
+        for filename, refs in file_groups.items():
+            # スコア順でソート
+            refs.sort(key=lambda x: x.similarity_score, reverse=True)
+            
+            # グループ情報を計算
+            total_score = sum(ref.similarity_score for ref in refs) / len(refs)
+            page_numbers = sorted(list(set(ref.page_number for ref in refs)))
+            
+            citation_groups.append(CitationGroup(
+                filename=filename,
+                references=refs,
+                total_score=total_score,
+                page_numbers=page_numbers
+            ))
+        
+        # 平均スコア順でソート
+        citation_groups.sort(key=lambda x: x.total_score, reverse=True)
+        
+        return citation_groups
+    
+    def _display_citation_group(
+        self,
+        group: CitationGroup,
+        show_similarity_scores: bool,
+        show_excerpts: bool,
+        max_excerpt_length: int
+    ) -> None:
+        """
+        引用グループを表示
+        
+        Args:
+            group: 引用グループ
             show_similarity_scores: 類似度スコア表示フラグ
             show_excerpts: 抜粋表示フラグ
             max_excerpt_length: 抜粋最大文字数
         """
-        if not search_results:
-            st.info("参照文書はありません")
-            return
+        # ファイル名とページ番号
+        page_display = self._format_page_ranges(group.page_numbers)
         
-        try:
-            for i, result in enumerate(search_results):
-                # 類似度スコア表示
-                if show_similarity_scores and hasattr(result, 'similarity_score'):
-                    score_color = self._get_score_color(result.similarity_score)
-                    st.markdown(
-                        f"📄 **{result.filename}** (ページ {result.page_number}) "
-                        f"<span style='color:{score_color}'>類似度: {result.similarity_score:.2f}</span>",
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.markdown(f"📄 **{result.filename}** (ページ {result.page_number})")
+        # 類似度スコア表示
+        if show_similarity_scores:
+            score_color = self._get_score_color(group.total_score)
+            st.markdown(
+                f"📄 **{group.filename}** ({page_display}) "
+                f"<span style='color:{score_color}'>類似度: {group.total_score:.2f}</span>",
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(f"📄 **{group.filename}** ({page_display})")
+        
+        # 抜粋表示
+        if show_excerpts and self.theme != "compact":
+            for i, ref in enumerate(group.references[:3]):  # 最大3つまで表示
+                excerpt = self._truncate_text(ref.excerpt, max_excerpt_length)
                 
-                # 抜粋表示
-                if show_excerpts:
-                    excerpt = self._truncate_text(result.content, max_excerpt_length)
-                    with st.expander(f"抜粋 {i+1}", expanded=(i == 0)):
-                        st.markdown(f"*{excerpt}*")
-                
-                if i < len(search_results) - 1:
-                    st.markdown("---")
+                with st.expander(f"抜粋 {i+1} (p.{ref.page_number})", expanded=(i == 0)):
+                    st.markdown(f"*{excerpt}*")
                     
-        except Exception as e:
-            logger.error(f"詳細引用表示エラー: {str(e)}")
+                    if show_similarity_scores:
+                        score_color = self._get_score_color(ref.similarity_score)
+                        st.markdown(
+                            f"<small style='color:{score_color}'>類似度: {ref.similarity_score:.3f}</small>",
+                            unsafe_allow_html=True
+                        )
+        
+        st.markdown("---")
     
     def _format_page_ranges(self, pages: List[int]) -> str:
         """
@@ -200,39 +333,78 @@ class StreamlitCitationWidget:
     """Streamlit用引用表示ウィジェット"""
     
     @staticmethod
+    def render_citation_sidebar(references: List[DocumentReference]) -> None:
+        """
+        サイドバーに引用を表示
+        
+        Args:
+            references: 文書参照リスト
+        """
+        if not references:
+            return
+        
+        with st.sidebar:
+            st.subheader("📚 参照文書")
+            
+            citation_display = CitationDisplay(theme="compact")
+            citation_display.display_compact_references(references)
+    
+    @staticmethod
     def render_citation_expander(
-        search_results: List[Any],
-        expanded: bool = False,
-        show_similarity_scores: bool = True
+        references: List[DocumentReference],
+        expanded: bool = False
     ) -> None:
         """
         エクスパンダーで引用を表示
         
         Args:
-            search_results: ベクター検索結果
+            references: 文書参照リスト
             expanded: 初期展開状態
-            show_similarity_scores: 類似度スコア表示フラグ
         """
-        if not search_results:
+        if not references:
             return
         
-        with st.expander(f"📄 参照文書 ({len(search_results)}件)", expanded=expanded):
+        with st.expander(f"📄 参照文書 ({len(references)}件)", expanded=expanded):
             citation_display = CitationDisplay(theme="detailed")
-            citation_display.display_detailed_references(
-                search_results, 
-                show_similarity_scores=show_similarity_scores
-            )
+            citation_display.display_references(references)
     
     @staticmethod
-    def render_inline_citations(search_results: List[Any]) -> None:
+    def render_inline_citations(references: List[DocumentReference]) -> None:
         """
         インライン引用を表示
         
         Args:
-            search_results: ベクター検索結果
+            references: 文書参照リスト
         """
-        if not search_results:
+        if not references:
             return
         
         citation_display = CitationDisplay(theme="compact")
-        citation_display.display_compact_references(search_results)
+        citation_display.display_compact_references(references)
+
+
+def create_sample_references() -> List[DocumentReference]:
+    """サンプル引用データを生成（テスト用）"""
+    return [
+        DocumentReference(
+            filename="新入社員マニュアル.pdf",
+            page_number=15,
+            chunk_id="chunk-001",
+            similarity_score=0.95,
+            excerpt="新入社員の研修期間は原則として3ヶ月間です。この期間中に基本的なビジネスマナーと業務知識を習得していただきます。"
+        ),
+        DocumentReference(
+            filename="新入社員マニュアル.pdf",
+            page_number=16,
+            chunk_id="chunk-002",
+            similarity_score=0.87,
+            excerpt="研修終了後は、各部署への正式配属となります。配属先は研修期間中の評価と本人の希望を総合的に判断して決定されます。"
+        ),
+        DocumentReference(
+            filename="人事規程.pdf",
+            page_number=8,
+            chunk_id="chunk-003",
+            similarity_score=0.82,
+            excerpt="職員の研修に関する規定について定めます。新入職員は必修研修を受講する義務があります。"
+        )
+    ]

@@ -138,9 +138,18 @@ class EmbeddingService:
             response_time = end_time - start_time
             
             # Issue #53のEmbeddingResultデータクラスを使用
+            # OpenAI APIの返り値を確実にリスト形式に変換
+            raw_embedding = response.data[0].embedding
+            if hasattr(raw_embedding, 'tolist'):
+                embedding_list = raw_embedding.tolist()
+            elif not isinstance(raw_embedding, list):
+                embedding_list = list(raw_embedding)
+            else:
+                embedding_list = raw_embedding
+                
             result = EmbeddingResult(
                 text=text,
-                embedding=response.data[0].embedding,
+                embedding=embedding_list,
                 token_count=response.usage.total_tokens,
                 model=self.model,
                 created_at=datetime.now()
@@ -223,9 +232,18 @@ class EmbeddingService:
             end_time = time.time()
             response_time = end_time - start_time
             
+            # OpenAI APIの返り値を確実にリスト形式に変換
+            raw_embedding = response.data[0].embedding
+            if hasattr(raw_embedding, 'tolist'):
+                embedding_list = raw_embedding.tolist()
+            elif not isinstance(raw_embedding, list):
+                embedding_list = list(raw_embedding)
+            else:
+                embedding_list = raw_embedding
+                
             result = EmbeddingResult(
                 text=text,
-                embedding=response.data[0].embedding,
+                embedding=embedding_list,
                 token_count=response.usage.total_tokens,
                 model=self.model,
                 created_at=datetime.now()
@@ -267,7 +285,17 @@ class EmbeddingService:
                 model=self.model
             )
             
-            embeddings = [item.embedding for item in response.data]
+            # OpenAI APIの返り値を確実にリスト形式に変換
+            embeddings = []
+            for item in response.data:
+                raw_embedding = item.embedding
+                if hasattr(raw_embedding, 'tolist'):
+                    embedding_list = raw_embedding.tolist()
+                elif not isinstance(raw_embedding, list):
+                    embedding_list = list(raw_embedding)
+                else:
+                    embedding_list = raw_embedding
+                embeddings.append(embedding_list)
             
             result = BatchEmbeddingResult(
                 embeddings=embeddings,
@@ -311,9 +339,18 @@ class EmbeddingService:
                     model=self.model
                 )
                 
+                # OpenAI APIの返り値を確実にリスト形式に変換
+                raw_embedding = response.data[0].embedding
+                if hasattr(raw_embedding, 'tolist'):
+                    embedding_list = raw_embedding.tolist()
+                elif not isinstance(raw_embedding, list):
+                    embedding_list = list(raw_embedding)
+                else:
+                    embedding_list = raw_embedding
+                    
                 result = EmbeddingResult(
                     text=text,
-                    embedding=response.data[0].embedding,
+                    embedding=embedding_list,
                     token_count=response.usage.total_tokens,
                     model=self.model,
                     created_at=datetime.now()

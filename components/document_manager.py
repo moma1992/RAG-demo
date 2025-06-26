@@ -8,6 +8,7 @@ import streamlit as st
 from typing import List, Dict, Optional
 import logging
 from datetime import datetime
+from services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -66,24 +67,36 @@ def show_document_list() -> None:
                 st.info("登録された文書がありません")
         else:
             st.error("ベクターストアが初期化されていません")
+<<<<<<< HEAD
             # フォールバック: サンプルデータ表示
             _show_sample_document_list()
+=======
+>>>>>>> main
             
     except Exception as e:
         logger.error(f"文書一覧取得エラー: {str(e)}")
         st.error(f"文書一覧の取得に失敗しました: {str(e)}")
         # フォールバック: サンプルデータ表示
+<<<<<<< HEAD
+=======
+        st.info("デモモードで表示しています")
+>>>>>>> main
         _show_sample_document_list()
 
 def _show_sample_document_list() -> None:
     """サンプル文書一覧表示（フォールバック用）"""
     sample_documents = [
         {
-            "filename": "入社手続きガイド.pdf",
-            "upload_date": "2024-01-15",
+            "filename": "新入社員マニュアル.pdf",
+            "upload_date": "2024-12-25",
             "pages": 25,
+<<<<<<< HEAD
             "size": "2.3 MB",
             "status": "処理完了",
+=======
+            "size": "1.0 MB",
+            "status": "completed",
+>>>>>>> main
             "chunks": 5
         }
     ]
@@ -132,6 +145,7 @@ def show_statistics() -> None:
                 
         else:
             st.error("ベクターストアが初期化されていません")
+<<<<<<< HEAD
             # フォールバック表示
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -140,11 +154,17 @@ def show_statistics() -> None:
                 st.metric("総ページ数", "25")
             with col3:
                 st.metric("総サイズ", "2.3 MB")
+=======
+>>>>>>> main
             
     except Exception as e:
         logger.error(f"統計情報取得エラー: {str(e)}")
         st.error(f"統計情報の取得に失敗しました: {str(e)}")
+<<<<<<< HEAD
         # フォールバック表示
+=======
+        # フォールバック
+>>>>>>> main
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("総文書数", "不明")
@@ -177,18 +197,23 @@ def show_delete_interface() -> None:
                         st.write(f"- {doc_name}")
                     
                     if st.button("選択した文書を削除", type="primary"):
-                        try:
-                            # 削除処理
-                            for doc_name in selected_docs:
+                        deleted_count = 0
+                        for doc_name in selected_docs:
+                            try:
                                 doc_id = doc_options[doc_name]
-                                vector_store.delete_document(doc_id)
-                            
-                            st.success(f"{len(selected_docs)}個の文書を削除しました")
+                                # チャンクを削除
+                                vector_store.client.table('document_chunks').delete().eq('document_id', doc_id).execute()
+                                # 文書を削除
+                                vector_store.client.table('documents').delete().eq('id', doc_id).execute()
+                                deleted_count += 1
+                                logger.info(f"文書削除完了: {doc_name} (ID: {doc_id})")
+                            except Exception as e:
+                                logger.error(f"文書削除エラー {doc_name}: {str(e)}")
+                                st.error(f"文書「{doc_name}」の削除に失敗しました: {str(e)}")
+                        
+                        if deleted_count > 0:
+                            st.success(f"{deleted_count}個の文書を削除しました")
                             st.rerun()
-                            
-                        except Exception as e:
-                            logger.error(f"文書削除エラー: {str(e)}")
-                            st.error(f"文書削除中にエラーが発生しました: {str(e)}")
             else:
                 st.info("削除可能な文書がありません")
         else:
@@ -196,6 +221,7 @@ def show_delete_interface() -> None:
             
     except Exception as e:
         logger.error(f"削除インターフェースエラー: {str(e)}")
+<<<<<<< HEAD
         st.error(f"削除機能でエラーが発生しました: {str(e)}")
         # フォールバック: サンプル選択肢
         selected_docs = st.multiselect(
@@ -206,3 +232,6 @@ def show_delete_interface() -> None:
         if selected_docs:
             if st.button("選択した文書を削除", type="primary"):
                 st.info("デモモードでは削除機能は利用できません")
+=======
+        st.error(f"削除インターフェースでエラーが発生しました: {str(e)}")
+>>>>>>> main

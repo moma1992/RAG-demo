@@ -228,11 +228,30 @@ def validate_embedding_vector(embedding: List[float]) -> None:
     Raises:
         VectorStoreError: 無効な埋め込みベクトルの場合
     """
+    # デバッグ情報を追加
+    logger.info(f"埋め込みベクトル検証: type={type(embedding)}, has_tolist={hasattr(embedding, 'tolist')}")
+    if hasattr(embedding, '__len__'):
+        logger.info(f"埋め込みベクトル長さ: {len(embedding)}")
+    if hasattr(embedding, '__class__'):
+        logger.info(f"埋め込みベクトルクラス: {embedding.__class__.__module__}.{embedding.__class__.__name__}")
+    
     if not embedding:
         raise VectorStoreError("埋め込みベクトルが空です")
 
+    # 型変換を試行
+    if hasattr(embedding, 'tolist'):
+        embedding = embedding.tolist()
+        logger.info(f"tolist()で変換後: type={type(embedding)}")
+    elif not isinstance(embedding, list):
+        try:
+            embedding = list(embedding)
+            logger.info(f"list()で変換後: type={type(embedding)}")
+        except Exception as e:
+            logger.error(f"リスト変換失敗: {str(e)}")
+            raise VectorStoreError(f"埋め込みベクトルはリスト形式である必要があります。現在の型: {type(embedding)}")
+    
     if not isinstance(embedding, list):
-        raise VectorStoreError("埋め込みベクトルはリスト形式である必要があります")
+        raise VectorStoreError(f"埋め込みベクトルはリスト形式である必要があります。現在の型: {type(embedding)}")
 
     if len(embedding) != EMBEDDING_DIMENSION:
         raise VectorStoreError(
