@@ -287,7 +287,7 @@ jobs:
           echo -e "\n\`\`\`" >> full_review_prompt.md
           
           # Execute Gemini CLI review
-          gemini --prompt-file full_review_prompt.md --output-file gemini_review_output.md || {
+          cat full_review_prompt.md | gemini > gemini_review_output.md || {
             echo "Gemini CLI review failed, creating fallback review"
             cat > gemini_review_output.md << 'FALLBACK_EOF'
           # 🤖 Gemini CLI Code Review
