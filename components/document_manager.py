@@ -67,20 +67,14 @@ def show_document_list() -> None:
                 st.info("登録された文書がありません")
         else:
             st.error("ベクターストアが初期化されていません")
-<<<<<<< HEAD
             # フォールバック: サンプルデータ表示
             _show_sample_document_list()
-=======
->>>>>>> main
             
     except Exception as e:
         logger.error(f"文書一覧取得エラー: {str(e)}")
         st.error(f"文書一覧の取得に失敗しました: {str(e)}")
         # フォールバック: サンプルデータ表示
-<<<<<<< HEAD
-=======
         st.info("デモモードで表示しています")
->>>>>>> main
         _show_sample_document_list()
 
 def _show_sample_document_list() -> None:
@@ -90,13 +84,8 @@ def _show_sample_document_list() -> None:
             "filename": "新入社員マニュアル.pdf",
             "upload_date": "2024-12-25",
             "pages": 25,
-<<<<<<< HEAD
             "size": "2.3 MB",
             "status": "処理完了",
-=======
-            "size": "1.0 MB",
-            "status": "completed",
->>>>>>> main
             "chunks": 5
         }
     ]
@@ -145,7 +134,6 @@ def show_statistics() -> None:
                 
         else:
             st.error("ベクターストアが初期化されていません")
-<<<<<<< HEAD
             # フォールバック表示
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -154,17 +142,11 @@ def show_statistics() -> None:
                 st.metric("総ページ数", "25")
             with col3:
                 st.metric("総サイズ", "2.3 MB")
-=======
->>>>>>> main
             
     except Exception as e:
         logger.error(f"統計情報取得エラー: {str(e)}")
         st.error(f"統計情報の取得に失敗しました: {str(e)}")
-<<<<<<< HEAD
         # フォールバック表示
-=======
-        # フォールバック
->>>>>>> main
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("総文書数", "不明")
@@ -221,7 +203,6 @@ def show_delete_interface() -> None:
             
     except Exception as e:
         logger.error(f"削除インターフェースエラー: {str(e)}")
-<<<<<<< HEAD
         st.error(f"削除機能でエラーが発生しました: {str(e)}")
         # フォールバック: サンプル選択肢
         selected_docs = st.multiselect(
@@ -232,6 +213,3 @@ def show_delete_interface() -> None:
         if selected_docs:
             if st.button("選択した文書を削除", type="primary"):
                 st.info("デモモードでは削除機能は利用できません")
-=======
-        st.error(f"削除インターフェースでエラーが発生しました: {str(e)}")
->>>>>>> main
