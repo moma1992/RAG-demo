@@ -286,8 +286,10 @@ jobs:
           cat code_changes.diff >> full_review_prompt.md
           echo -e "\n\`\`\`" >> full_review_prompt.md
           
-          # Execute Gemini CLI review
-          cat full_review_prompt.md | gemini > gemini_review_output.md || {
+          # Execute Gemini CLI review with rate limiting
+          # Add delay to respect API limits
+          sleep 5
+          cat full_review_prompt.md | timeout 120 gemini > gemini_review_output.md || {
             echo "Gemini CLI review failed, creating fallback review"
             cat > gemini_review_output.md << 'FALLBACK_EOF'
           # 🤖 Gemini CLI Code Review
@@ -296,10 +298,20 @@ jobs:
           ⚠️ **Automated review encountered an issue**
           
           ## Manual Review Required
-          The Gemini CLI automated review could not be completed. Please ensure:
-          1. GEMINI_API_KEY is properly configured
-          2. API quota is available
-          3. Network connectivity is stable
+          The Gemini CLI automated review could not be completed. Please check:
+          
+          ### 🔑 API Configuration
+          1. **GEMINI_API_KEY**: ✅ Configured in GitHub Secrets
+          2. **API Quota**: ⚠️ May have reached daily/hourly limits
+             - Free tier: 60 requests/minute, 1,000 requests/day
+             - Check usage at [Google AI Studio](https://aistudio.google.com/)
+          3. **Network connectivity**: Usually stable in GitHub Actions
+          
+          ### 🕒 Rate Limiting
+          If you see "429 Resource exhausted" errors:
+          - Wait 1 hour for rate limit reset
+          - Consider upgrading API quota for higher usage
+          - Multiple PR tests may exhaust free quota quickly
           
           ## Files Changed
           ${{ needs.pre-analysis.outputs.changed-files }}
