@@ -351,7 +351,7 @@ jobs:
           
           Please conduct manual code review focusing on the identified areas.
           FALLBACK_EOF
-          }
+          fi
 
       - name: Post review comment
         uses: actions/github-script@v7
