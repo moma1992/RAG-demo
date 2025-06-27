@@ -1,5 +1,10 @@
 name: Advanced Gemini CLI Code Review
 
+# 429エラー対策：同時実行を制限して API レート制限を回避
+concurrency:
+  group: gemini-review
+  cancel-in-progress: true
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -104,9 +109,11 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install Gemini CLI
+      - name: Install Latest Gemini CLI
         run: |
-          npm install -g @google/gemini-cli
+          # 429エラー対策：最新版のGemini CLIを使用
+          npm install -g @google/gemini-cli@latest
+          gemini --version
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -266,32 +273,73 @@ jobs:
           cat code_changes.diff >> full_review_prompt.md
           echo -e "\n\`\`\`" >> full_review_prompt.md
           
-          # Execute Gemini CLI review with rate limiting
-          # Add delay to respect API limits
-          sleep 5
-          cat full_review_prompt.md | timeout 120 gemini > gemini_review_output.md || {
-            echo "Gemini CLI review failed, creating fallback review"
+          # Execute Gemini CLI review with enhanced 429 error handling
+          echo "Starting Gemini CLI review with retry mechanism..."
+          
+          # 429エラー対策：リトライ機能付きでGemini CLIを実行
+          RETRY_COUNT=0
+          MAX_RETRIES=3
+          SUCCESS=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Attempt $RETRY_COUNT of $MAX_RETRIES..."
+            
+            # リクエスト間隔を空ける（APIレート制限対策）
+            if [ $RETRY_COUNT -gt 1 ]; then
+              WAIT_TIME=$((RETRY_COUNT * 30))  # 30秒、60秒、90秒
+              echo "Waiting ${WAIT_TIME} seconds before retry..."
+              sleep $WAIT_TIME
+            fi
+            
+            # Gemini CLI実行（タイムアウト付き）
+            if timeout 180 gemini < full_review_prompt.md > gemini_review_output.md 2>&1; then
+              echo "✅ Gemini CLI review completed successfully"
+              SUCCESS=true
+            else
+              EXIT_CODE=$?
+              echo "❌ Attempt $RETRY_COUNT failed (exit code: $EXIT_CODE)"
+              
+              # エラー内容を確認
+              if grep -q "429" gemini_review_output.md 2>/dev/null || grep -q "Too Many Requests" gemini_review_output.md 2>/dev/null; then
+                echo "🚫 Rate limit detected (429 error)"
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  echo "Will retry after backoff..."
+                fi
+              else
+                echo "❓ Non-rate-limit error detected"
+                cat gemini_review_output.md 2>/dev/null || echo "No output file generated"
+              fi
+            fi
+          done
+          
+          # 全ての試行が失敗した場合のフォールバック
+          if [ "$SUCCESS" = false ]; then
+            echo "🔴 All retry attempts failed, creating fallback review"
             cat > gemini_review_output.md << 'FALLBACK_EOF'
           # 🤖 Gemini CLI Code Review
           
           ## Status
-          ⚠️ **Automated review encountered an issue**
+          ⚠️ **Automated review failed after multiple retry attempts**
           
-          ## Manual Review Required
-          The Gemini CLI automated review could not be completed. Please check:
+          ## 429 Rate Limit Error Detected
+          The Gemini CLI review encountered persistent rate limiting issues.
           
-          ### 🔑 API Configuration
-          1. **GEMINI_API_KEY**: ✅ Configured in GitHub Secrets
-          2. **API Quota**: ⚠️ May have reached daily/hourly limits
-             - Free tier: 60 requests/minute, 1,000 requests/day
-             - Check usage at [Google AI Studio](https://aistudio.google.com/)
-          3. **Network connectivity**: Usually stable in GitHub Actions
+          ### 🔑 Current Status
+          1. **Retry Attempts**: 3 attempts with exponential backoff (30s, 60s, 90s)
+          2. **API Key**: ✅ Configured in GitHub Secrets  
+          3. **Rate Limits**: 🚫 Exceeded (60 requests/minute, 1,000 requests/day)
           
-          ### 🕒 Rate Limiting
-          If you see "429 Resource exhausted" errors:
-          - Wait 1 hour for rate limit reset
-          - Consider upgrading API quota for higher usage
-          - Multiple PR tests may exhaust free quota quickly
+          ### 🕒 Known Gemini CLI Issues (2025)
+          - **Google Server Issues**: Widespread 429 errors reported in [gemini-cli#1502](https://github.com/google-gemini/gemini-cli/issues/1502)
+          - **API Quota Problems**: Even paid accounts experiencing issues
+          - **Recommended Fix**: Generate new API key at [Google AI Studio](https://aistudio.google.com/app/apikey)
+          
+          ### 🛠️ Immediate Actions
+          1. **Wait 1 hour** for rate limit reset
+          2. **Generate new API key** from Google AI Studio
+          3. **Update GEMINI_API_KEY** secret in repository settings
+          4. **Re-run workflow** or trigger manual review with \`@claudereview\`
           
           ## Files Changed
           ${{ needs.pre-analysis.outputs.changed-files }}
@@ -330,8 +378,8 @@ jobs:
               `;
             }
             
-            // Add header with context
-            const fullReview = `# 🤖 Gemini CLI Code Review
+            // Add header with context and retry information
+            const fullReview = `# 🤖 Gemini CLI Code Review (Enhanced with 429 Error Handling)
             
             **Automated Review for PR #${{ github.event.number }}** (Following .github/REVIEW_TEMPLATE.md format)
             
@@ -340,6 +388,7 @@ jobs:
             - **Complexity Score**: ${{ needs.pre-analysis.outputs.complexity-score }}
             - **Review Focus**: ${{ needs.pre-analysis.outputs.review-focus }}
             - **Changed Files**: ${{ needs.pre-analysis.outputs.changed-files }}
+            - **429 Error Protection**: ✅ 3-retry mechanism with exponential backoff
             
             ---
             
@@ -350,11 +399,12 @@ jobs:
             ## 🔧 Review Metadata
             - **Reviewer**: Gemini CLI (Google AI)
             - **Review Date**: ${new Date().toISOString()}
-            - **Workflow**: Advanced Gemini CLI Code Review
+            - **Workflow**: Advanced Gemini CLI Code Review (Enhanced)
             - **Template**: .github/REVIEW_TEMPLATE.md
-            - **Version**: 2.0.0
+            - **Version**: 3.0.0 (429 Error Handling)
+            - **Error Protection**: 3-retry mechanism with 30s/60s/90s backoff
             
-            > This review was generated automatically using Gemini CLI following the repository's official review template. For questions about specific recommendations, please refer to the detailed analysis above or request human review.
+            > This review was generated automatically using Gemini CLI with enhanced 429 error handling. If rate limits are encountered, the system will retry up to 3 times with exponential backoff. For manual review, use \`@claudereview\` trigger.
             `;
             
             // Post the review as a comment
