@@ -6,8 +6,18 @@ StreamlitとSupabaseを使用したMVP実装
 
 新入社員が社内文書を効率的に検索・参照できるRAG（Retrieval-Augmented Generation）システムです。PDF文書をアップロードし、自然言語で質問することで、関連する情報を素早く見つけることができます。
 
-### 🔧 Gemini Review Workflow
-本プロジェクトには高度なAIコードレビュー機能が統合されており、すべてのPull Requestに対してGemini AIによる包括的なコード分析が自動実行されます。
+### 🔧 AI Code Review Workflow
+本プロジェクトには2段階のAIコードレビューシステムが導入されています：
+
+#### 🥇 Primary Review: Gemini AI
+- すべてのPull Requestに対してGemini AIによる包括的なコード分析が自動実行
+- 基本的なコード品質、バグ検出、ベストプラクティスチェック
+
+#### 🥈 Secondary Review: Claude (Manual Trigger)
+- Gemini reviewの品質保証とダブルチェック
+- **トリガー**: PRコメントに `@claudereview` と記載
+- MCP（Memory Control Protocol）を活用した高度な技術分析
+- 業界ベストプラクティスとの比較、セキュリティ分析
 
 ## ✨ 主な機能
 
