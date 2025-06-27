@@ -6,18 +6,28 @@ StreamlitとSupabaseを使用したMVP実装
 
 新入社員が社内文書を効率的に検索・参照できるRAG（Retrieval-Augmented Generation）システムです。PDF文書をアップロードし、自然言語で質問することで、関連する情報を素早く見つけることができます。
 
+**✨ 2025年最新版**: 強化された429エラー対策により、より安定したAIコードレビューを提供
+
 ### 🔧 AI Code Review Workflow
 本プロジェクトには2段階のAIコードレビューシステムが導入されています：
 
-#### 🥇 Primary Review: Gemini AI
+#### 🥇 Primary Review: Gemini AI (Enhanced with 429 Error Handling)
 - すべてのPull Requestに対してGemini AIによる包括的なコード分析が自動実行
 - 基本的なコード品質、バグ検出、ベストプラクティスチェック
+- **429エラー対策**: 3回リトライ機能（30s/60s/90s指数バックオフ）
+- **同時実行制限**: 複数PRでのAPI制限衝突を回避
+- **.github/REVIEW_TEMPLATE.md形式**: 統一されたレビュー出力
 
 #### 🥈 Secondary Review: Claude (Manual Trigger)
 - Gemini reviewの品質保証とダブルチェック
 - **トリガー**: PRコメントに `@claudereview` と記載
 - MCP（Memory Control Protocol）を活用した高度な技術分析
 - 業界ベストプラクティスとの比較、セキュリティ分析
+
+#### 🔧 レビューシステムの信頼性向上
+- **Gemini APIの制限対応**: Google公式Issue対応済み（[#1502](https://github.com/google-gemini/gemini-cli/issues/1502)）
+- **自動復旧機能**: 一時的なAPI制限でも自動的にリトライ
+- **詳細なエラー報告**: 問題特定と解決策の自動提示
 
 ## ✨ 主な機能
 
