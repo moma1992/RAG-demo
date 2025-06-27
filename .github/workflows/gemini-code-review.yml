@@ -172,9 +172,24 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # Create comprehensive review prompt
+          # Create comprehensive review prompt based on official template
           cat > review_prompt.md << 'EOF'
-          You are an expert code reviewer specializing in Python RAG applications. Please conduct a comprehensive code review of the following changes.
+          You are an expert code reviewer specializing in Python RAG applications. 
+          
+          **IMPORTANT**: Please structure your review using this format:
+          
+          ## 全体的な評価
+          [プルリクエストの全体的な評価や変更の要約]
+          
+          ---
+          
+          ## 具体的な提案
+          
+          ### `[ファイル名]`
+          > [変更を提案するコード部分を引用]
+          **提案:** [具体的な改善案やコードスニペット]
+          
+          ---
           
           ## Review Guidelines
           
@@ -220,59 +235,24 @@ jobs:
           - Context window management
           - Citation and source tracking
           
-          ### 📊 Review Output Format
+          ### 📊 Expected Output Format
           
-          Please provide your review in the following format:
+          Please structure your review to match the repository's review template format:
           
-          ## 🔬 Code Review Summary
-          **Overall Assessment**: [Approve/Request Changes/Needs Work]
-          **Risk Level**: [Low/Medium/High]
-          **Complexity Score**: ${{ needs.pre-analysis.outputs.complexity-score }}
+          1. **全体的な評価** - Overall assessment and summary of changes
+          2. **具体的な提案** - Specific file-by-file recommendations with:
+             - File name as header
+             - Code quotes for problematic sections  
+             - Concrete improvement suggestions
           
-          ## ⚡ Performance Analysis
-          - **Strengths**: [Performance improvements identified]
-          - **Concerns**: [Performance issues or bottlenecks]
-          - **Recommendations**: [Specific optimization suggestions]
+          Include relevant technical details for:
+          - Performance optimization (target: <500ms response time)
+          - Security vulnerabilities and fixes
+          - Testing completeness and coverage
+          - RAG-specific improvements (chunking, embeddings, vector search)
+          - Code quality and architectural concerns
           
-          ## 🛡️ Security Assessment
-          - **Security Strengths**: [Security measures implemented well]
-          - **Security Concerns**: [Potential vulnerabilities]
-          - **Security Recommendations**: [Security improvements needed]
-          
-          ## 🧪 Testing & Quality Review
-          - **Test Coverage**: [Assessment of test completeness]
-          - **Quality Strengths**: [Well-implemented aspects]
-          - **Quality Concerns**: [Code quality issues]
-          
-          ## 🏗️ Architecture Review
-          - **Design Strengths**: [Good architectural decisions]
-          - **Design Concerns**: [Architectural issues]
-          - **Refactoring Suggestions**: [Structural improvements]
-          
-          ## 🎯 RAG-Specific Review
-          - **RAG Implementation**: [Assessment of RAG-specific code]
-          - **Vector Search**: [Vector database usage review]
-          - **Document Processing**: [PDF processing and chunking review]
-          
-          ## 📋 Action Items
-          ### 🚨 Critical Issues (Must Fix)
-          - [ ] [Critical issue 1]
-          - [ ] [Critical issue 2]
-          
-          ### ⚠️ Important Issues (Should Fix)  
-          - [ ] [Important issue 1]
-          - [ ] [Important issue 2]
-          
-          ### 💡 Suggestions (Nice to Have)
-          - [ ] [Suggestion 1]
-          - [ ] [Suggestion 2]
-          
-          ## 🎓 Learning Opportunities
-          - **Best Practices**: [Development best practices highlighted]
-          - **Resources**: [Helpful documentation or examples]
-          - **Future Improvements**: [Long-term enhancement suggestions]
-          
-          Please analyze the code changes and provide a detailed review following this structure.
+          Focus on actionable feedback that follows Python and RAG application best practices.
           EOF
           
           # Run Gemini CLI with the review prompt and code context
@@ -353,7 +333,7 @@ jobs:
             // Add header with context
             const fullReview = `# 🤖 Gemini CLI Code Review
             
-            **Automated Review for PR #${{ github.event.number }}**
+            **Automated Review for PR #${{ github.event.number }}** (Following .github/REVIEW_TEMPLATE.md format)
             
             ## 📊 Analysis Context
             - **Technology Stack**: ${{ needs.pre-analysis.outputs.tech-stack }}
@@ -371,9 +351,10 @@ jobs:
             - **Reviewer**: Gemini CLI (Google AI)
             - **Review Date**: ${new Date().toISOString()}
             - **Workflow**: Advanced Gemini CLI Code Review
-            - **Version**: 1.0.0
+            - **Template**: .github/REVIEW_TEMPLATE.md
+            - **Version**: 2.0.0
             
-            > This review was generated automatically using Gemini CLI. For questions about specific recommendations, please refer to the detailed analysis above or request human review.
+            > This review was generated automatically using Gemini CLI following the repository's official review template. For questions about specific recommendations, please refer to the detailed analysis above or request human review.
             `;
             
             // Post the review as a comment
