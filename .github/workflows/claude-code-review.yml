@@ -1,22 +1,17 @@
 name: Advanced Claude Code Review with MCP Intelligence
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    # Smart path filtering for relevant changes
-    paths:
-      - "**/*.py"
-      - "tests/**/*"
-      - "requirements*.txt"
-      - "pyproject.toml"
-      - "CLAUDE.md"
-      - "services/**/*"
-      - "components/**/*"
-      - "utils/**/*"
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
 
 jobs:
   # Pre-analysis job to gather context using MCP tools
   mcp-context-analysis:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claudereview')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claudereview'))
     name: MCP Context Analysis
     runs-on: ubuntu-latest
     permissions:
@@ -81,6 +76,9 @@ jobs:
           echo "review-focus=$REVIEW_FOCUS" >> $GITHUB_OUTPUT
 
   claude-review:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claudereview')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claudereview'))
     name: Advanced Claude Code Review
     needs: mcp-context-analysis
     runs-on: ubuntu-latest
@@ -131,7 +129,15 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # MCP-Enhanced Review Prompt with Context7 & DeepWiki Integration
           direct_prompt: |
-            You are conducting an advanced code review with access to Context7 and DeepWiki MCP servers for comprehensive analysis.
+            You are conducting a **secondary code review** as a quality assurance check after the primary Gemini AI code review. 
+            Your role is to provide complementary analysis focusing on areas that might have been missed or need additional validation.
+            You have access to Context7 and DeepWiki MCP servers for comprehensive analysis.
+            
+            ## 🎯 Secondary Review Objectives
+            - **Quality Assurance**: Validate and complement the primary Gemini review
+            - **Deep Technical Analysis**: Leverage MCP tools for industry best practices research  
+            - **Security & Performance Focus**: Advanced vulnerability and optimization analysis
+            - **Learning Enhancement**: Provide educational insights for continuous improvement
             
             ## 🧠 MCP-Enhanced Analysis Context
             **Technology Stack**: ${{ needs.mcp-context-analysis.outputs.tech-stack }}
@@ -196,7 +202,12 @@ jobs:
             - **Configuration Management**: Validate against 12-factor app principles
             - **API Design**: Compare with established Python library patterns
             
-            ## 📊 Advanced Review Output Format
+            ## 📊 Secondary Review Output Format
+            
+            ### 🔄 Primary Review Validation
+            **Gemini Review Assessment**: [Comment on the quality and completeness of the primary review]
+            **Missed Areas Identified**: [Areas that may need additional attention]
+            **Validation Results**: [Confirm or suggest adjustments to primary findings]
             
             ### 🔬 MCP Intelligence Summary
             **Research Findings**:
@@ -250,10 +261,14 @@ jobs:
           
   # Post-review analysis and learning insights
   mcp-learning-insights:
+    if: |
+      always() && (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claudereview')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claudereview'))
+      )
     name: MCP Learning Insights & Metrics
     needs: [mcp-context-analysis, claude-review]
     runs-on: ubuntu-latest
-    if: always() # Run even if review fails to gather learning data
     permissions:
       contents: read
       issues: write
@@ -337,10 +352,14 @@ jobs:
 
   # Optional: Knowledge base update job
   knowledge-base-update:
+    if: |
+      needs.claude-review.result == 'success' && (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claudereview')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claudereview'))
+      )
     name: Update Knowledge Base
     needs: [mcp-context-analysis, claude-review, mcp-learning-insights]
     runs-on: ubuntu-latest
-    if: needs.claude-review.result == 'success'
     permissions:
       contents: write
     

@@ -11,10 +11,17 @@ import uuid
 
 
 class TestVectorStore:
-    """ベクトルストアテストクラス"""
+    """ベクトルストアテストクラス
+    
+    Supabaseベクトルデータベースとの統合テストを実行
+    文書保存、チャンク管理、ベクトル検索の動作を検証
+    """
     
     def test_init(self):
-        """初期化テスト"""
+        """初期化テスト
+        
+        VectorStoreインスタンスの正常な初期化を確認
+        """
         store = VectorStore("https://test.supabase.co", "test-key")
         assert store.supabase_url == "https://test.supabase.co"
         assert store.supabase_key == "test-key"

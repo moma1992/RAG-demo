@@ -27,13 +27,19 @@ class DatabaseConfig:
 
 @dataclass
 class AppConfig:
-    """アプリケーション設定"""
-    max_file_size_mb: int = 50
-    max_files_per_upload: int = 10
-    chunk_size: int = 512
-    chunk_overlap: float = 0.1
-    search_top_k: int = 5
-    similarity_threshold: float = 0.7
+    """アプリケーション設定
+    
+    RAGシステムのパフォーマンスとユーザー体験に関する設定値を管理
+    """
+    max_file_size_mb: int = 50  # PDF最大ファイルサイズ（MB）
+    max_files_per_upload: int = 10  # 一度にアップロード可能なファイル数
+    chunk_size: int = 512  # テキストチャンクサイズ（トークン数）
+    chunk_overlap: float = 0.1  # チャンク間オーバーラップ率（10%）
+    search_top_k: int = 5  # 類似検索結果の最大取得数
+    similarity_threshold: float = 0.7  # 類似度閾値（0.7以上を関連とみなす）
+    # パフォーマンス最適化設定
+    enable_cache: bool = True  # 検索結果キャッシュの有効化
+    cache_ttl_seconds: int = 300  # キャッシュ有効期限（5分）
 
 class ConfigManager:
     """設定管理クラス"""
@@ -124,18 +130,31 @@ class ConfigManager:
         return value
     
     def validate_config(self) -> bool:
-        """設定を検証"""
+        """設定を検証
+        
+        Returns:
+            bool: 設定が有効な場合True、無効な場合False
+        """
         try:
             # API設定の検証
             api_config = self.api_config
             if not api_config.openai_api_key.startswith(('sk-', 'sk_')):
                 logger.warning("OpenAI APIキーの形式が正しくない可能性があります")
                 
+            # Anthropic APIキーの簡易検証も追加
+            if not api_config.anthropic_api_key.startswith('sk-'):
+                logger.warning("Anthropic APIキーの形式が正しくない可能性があります")
+                
             # データベース設定の検証
             db_config = self.db_config
             if not db_config.supabase_url.startswith('https://'):
                 logger.warning("Supabase URLの形式が正しくない可能性があります")
             
+            # アプリケーション設定の妥当性チェック
+            app_config = self.app_config
+            if app_config.chunk_size <= 0 or app_config.chunk_size > 2048:
+                logger.warning(f"チャンクサイズが範囲外です: {app_config.chunk_size}")
+                
             logger.info("設定検証完了")
             return True
             

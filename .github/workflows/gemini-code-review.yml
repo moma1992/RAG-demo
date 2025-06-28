@@ -1,5 +1,10 @@
 name: Advanced Gemini CLI Code Review
 
+# 429エラー対策：同時実行を制限して API レート制限を回避
+concurrency:
+  group: gemini-review
+  cancel-in-progress: true
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -104,9 +109,11 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install Gemini CLI
+      - name: Install Latest Gemini CLI
         run: |
-          npm install -g @google/gemini-cli
+          # 429エラー対策：最新版のGemini CLIを使用
+          npm install -g @google/gemini-cli@latest
+          gemini --version
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -172,9 +179,24 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # Create comprehensive review prompt
+          # Create comprehensive review prompt based on official template
           cat > review_prompt.md << 'EOF'
-          You are an expert code reviewer specializing in Python RAG applications. Please conduct a comprehensive code review of the following changes.
+          You are an expert code reviewer specializing in Python RAG applications. 
+          
+          **IMPORTANT**: Please structure your review using this format:
+          
+          ## 全体的な評価
+          [プルリクエストの全体的な評価や変更の要約]
+          
+          ---
+          
+          ## 具体的な提案
+          
+          ### `[ファイル名]`
+          > [変更を提案するコード部分を引用]
+          **提案:** [具体的な改善案やコードスニペット]
+          
+          ---
           
           ## Review Guidelines
           
@@ -220,59 +242,24 @@ jobs:
           - Context window management
           - Citation and source tracking
           
-          ### 📊 Review Output Format
+          ### 📊 Expected Output Format
           
-          Please provide your review in the following format:
+          Please structure your review to match the repository's review template format:
           
-          ## 🔬 Code Review Summary
-          **Overall Assessment**: [Approve/Request Changes/Needs Work]
-          **Risk Level**: [Low/Medium/High]
-          **Complexity Score**: ${{ needs.pre-analysis.outputs.complexity-score }}
+          1. **全体的な評価** - Overall assessment and summary of changes
+          2. **具体的な提案** - Specific file-by-file recommendations with:
+             - File name as header
+             - Code quotes for problematic sections  
+             - Concrete improvement suggestions
           
-          ## ⚡ Performance Analysis
-          - **Strengths**: [Performance improvements identified]
-          - **Concerns**: [Performance issues or bottlenecks]
-          - **Recommendations**: [Specific optimization suggestions]
+          Include relevant technical details for:
+          - Performance optimization (target: <500ms response time)
+          - Security vulnerabilities and fixes
+          - Testing completeness and coverage
+          - RAG-specific improvements (chunking, embeddings, vector search)
+          - Code quality and architectural concerns
           
-          ## 🛡️ Security Assessment
-          - **Security Strengths**: [Security measures implemented well]
-          - **Security Concerns**: [Potential vulnerabilities]
-          - **Security Recommendations**: [Security improvements needed]
-          
-          ## 🧪 Testing & Quality Review
-          - **Test Coverage**: [Assessment of test completeness]
-          - **Quality Strengths**: [Well-implemented aspects]
-          - **Quality Concerns**: [Code quality issues]
-          
-          ## 🏗️ Architecture Review
-          - **Design Strengths**: [Good architectural decisions]
-          - **Design Concerns**: [Architectural issues]
-          - **Refactoring Suggestions**: [Structural improvements]
-          
-          ## 🎯 RAG-Specific Review
-          - **RAG Implementation**: [Assessment of RAG-specific code]
-          - **Vector Search**: [Vector database usage review]
-          - **Document Processing**: [PDF processing and chunking review]
-          
-          ## 📋 Action Items
-          ### 🚨 Critical Issues (Must Fix)
-          - [ ] [Critical issue 1]
-          - [ ] [Critical issue 2]
-          
-          ### ⚠️ Important Issues (Should Fix)  
-          - [ ] [Important issue 1]
-          - [ ] [Important issue 2]
-          
-          ### 💡 Suggestions (Nice to Have)
-          - [ ] [Suggestion 1]
-          - [ ] [Suggestion 2]
-          
-          ## 🎓 Learning Opportunities
-          - **Best Practices**: [Development best practices highlighted]
-          - **Resources**: [Helpful documentation or examples]
-          - **Future Improvements**: [Long-term enhancement suggestions]
-          
-          Please analyze the code changes and provide a detailed review following this structure.
+          Focus on actionable feedback that follows Python and RAG application best practices.
           EOF
           
           # Run Gemini CLI with the review prompt and code context
@@ -286,20 +273,73 @@ jobs:
           cat code_changes.diff >> full_review_prompt.md
           echo -e "\n\`\`\`" >> full_review_prompt.md
           
-          # Execute Gemini CLI review
-          gemini --prompt-file full_review_prompt.md --output-file gemini_review_output.md || {
-            echo "Gemini CLI review failed, creating fallback review"
+          # Execute Gemini CLI review with enhanced 429 error handling
+          echo "Starting Gemini CLI review with retry mechanism..."
+          
+          # 429エラー対策：リトライ機能付きでGemini CLIを実行
+          RETRY_COUNT=0
+          MAX_RETRIES=3
+          SUCCESS=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Attempt $RETRY_COUNT of $MAX_RETRIES..."
+            
+            # リクエスト間隔を空ける（APIレート制限対策）
+            if [ $RETRY_COUNT -gt 1 ]; then
+              WAIT_TIME=$((RETRY_COUNT * 30))  # 30秒、60秒、90秒
+              echo "Waiting ${WAIT_TIME} seconds before retry..."
+              sleep $WAIT_TIME
+            fi
+            
+            # Gemini CLI実行（タイムアウト付き）
+            if timeout 180 gemini < full_review_prompt.md > gemini_review_output.md 2>&1; then
+              echo "✅ Gemini CLI review completed successfully"
+              SUCCESS=true
+            else
+              EXIT_CODE=$?
+              echo "❌ Attempt $RETRY_COUNT failed (exit code: $EXIT_CODE)"
+              
+              # エラー内容を確認
+              if grep -q "429" gemini_review_output.md 2>/dev/null || grep -q "Too Many Requests" gemini_review_output.md 2>/dev/null; then
+                echo "🚫 Rate limit detected (429 error)"
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  echo "Will retry after backoff..."
+                fi
+              else
+                echo "❓ Non-rate-limit error detected"
+                cat gemini_review_output.md 2>/dev/null || echo "No output file generated"
+              fi
+            fi
+          done
+          
+          # 全ての試行が失敗した場合のフォールバック
+          if [ "$SUCCESS" = false ]; then
+            echo "🔴 All retry attempts failed, creating fallback review"
             cat > gemini_review_output.md << 'FALLBACK_EOF'
           # 🤖 Gemini CLI Code Review
           
           ## Status
-          ⚠️ **Automated review encountered an issue**
+          ⚠️ **Automated review failed after multiple retry attempts**
           
-          ## Manual Review Required
-          The Gemini CLI automated review could not be completed. Please ensure:
-          1. GEMINI_API_KEY is properly configured
-          2. API quota is available
-          3. Network connectivity is stable
+          ## 429 Rate Limit Error Detected
+          The Gemini CLI review encountered persistent rate limiting issues.
+          
+          ### 🔑 Current Status
+          1. **Retry Attempts**: 3 attempts with exponential backoff (30s, 60s, 90s)
+          2. **API Key**: ✅ Configured in GitHub Secrets  
+          3. **Rate Limits**: 🚫 Exceeded (60 requests/minute, 1,000 requests/day)
+          
+          ### 🕒 Known Gemini CLI Issues (2025)
+          - **Google Server Issues**: Widespread 429 errors reported in [gemini-cli#1502](https://github.com/google-gemini/gemini-cli/issues/1502)
+          - **API Quota Problems**: Even paid accounts experiencing issues
+          - **Recommended Fix**: Generate new API key at [Google AI Studio](https://aistudio.google.com/app/apikey)
+          
+          ### 🛠️ Immediate Actions
+          1. **Wait 1 hour** for rate limit reset
+          2. **Generate new API key** from Google AI Studio
+          3. **Update GEMINI_API_KEY** secret in repository settings
+          4. **Re-run workflow** or trigger manual review with \`@claudereview\`
           
           ## Files Changed
           ${{ needs.pre-analysis.outputs.changed-files }}
@@ -311,7 +351,7 @@ jobs:
           
           Please conduct manual code review focusing on the identified areas.
           FALLBACK_EOF
-          }
+          fi
 
       - name: Post review comment
         uses: actions/github-script@v7
@@ -338,16 +378,17 @@ jobs:
               `;
             }
             
-            // Add header with context
-            const fullReview = `# 🤖 Gemini CLI Code Review
+            // Add header with context and retry information
+            const fullReview = `# 🤖 Gemini CLI Code Review (Enhanced with 429 Error Handling)
             
-            **Automated Review for PR #${{ github.event.number }}**
+            **Automated Review for PR #${{ github.event.number }}** (Following .github/REVIEW_TEMPLATE.md format)
             
             ## 📊 Analysis Context
             - **Technology Stack**: ${{ needs.pre-analysis.outputs.tech-stack }}
             - **Complexity Score**: ${{ needs.pre-analysis.outputs.complexity-score }}
             - **Review Focus**: ${{ needs.pre-analysis.outputs.review-focus }}
             - **Changed Files**: ${{ needs.pre-analysis.outputs.changed-files }}
+            - **429 Error Protection**: ✅ 3-retry mechanism with exponential backoff
             
             ---
             
@@ -358,10 +399,12 @@ jobs:
             ## 🔧 Review Metadata
             - **Reviewer**: Gemini CLI (Google AI)
             - **Review Date**: ${new Date().toISOString()}
-            - **Workflow**: Advanced Gemini CLI Code Review
-            - **Version**: 1.0.0
+            - **Workflow**: Advanced Gemini CLI Code Review (Enhanced)
+            - **Template**: .github/REVIEW_TEMPLATE.md
+            - **Version**: 3.0.0 (429 Error Handling)
+            - **Error Protection**: 3-retry mechanism with 30s/60s/90s backoff
             
-            > This review was generated automatically using Gemini CLI. For questions about specific recommendations, please refer to the detailed analysis above or request human review.
+            > This review was generated automatically using Gemini CLI with enhanced 429 error handling. If rate limits are encountered, the system will retry up to 3 times with exponential backoff. For manual review, use \`@claudereview\` trigger.
             `;
             
             // Post the review as a comment

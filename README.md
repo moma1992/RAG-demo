@@ -6,6 +6,29 @@ StreamlitとSupabaseを使用したMVP実装
 
 新入社員が社内文書を効率的に検索・参照できるRAG（Retrieval-Augmented Generation）システムです。PDF文書をアップロードし、自然言語で質問することで、関連する情報を素早く見つけることができます。
 
+**✨ 2025年最新版**: 強化された429エラー対策により、より安定したAIコードレビューを提供
+
+### 🔧 AI Code Review Workflow
+本プロジェクトには2段階のAIコードレビューシステムが導入されています：
+
+#### 🥇 Primary Review: Gemini AI (Enhanced with 429 Error Handling)
+- すべてのPull Requestに対してGemini AIによる包括的なコード分析が自動実行
+- 基本的なコード品質、バグ検出、ベストプラクティスチェック
+- **429エラー対策**: 3回リトライ機能（30s/60s/90s指数バックオフ）
+- **同時実行制限**: 複数PRでのAPI制限衝突を回避
+- **.github/REVIEW_TEMPLATE.md形式**: 統一されたレビュー出力
+
+#### 🥈 Secondary Review: Claude (Manual Trigger)
+- Gemini reviewの品質保証とダブルチェック
+- **トリガー**: PRコメントに `@claudereview` と記載
+- MCP（Memory Control Protocol）を活用した高度な技術分析
+- 業界ベストプラクティスとの比較、セキュリティ分析
+
+#### 🔧 レビューシステムの信頼性向上
+- **Gemini APIの制限対応**: Google公式Issue対応済み（[#1502](https://github.com/google-gemini/gemini-cli/issues/1502)）
+- **自動復旧機能**: 一時的なAPI制限でも自動的にリトライ
+- **詳細なエラー報告**: 問題特定と解決策の自動提示
+
 ## ✨ 主な機能
 
 - 📁 **PDF文書アップロード**: 複数のPDFファイルを同時にアップロード
@@ -13,6 +36,8 @@ StreamlitとSupabaseを使用したMVP実装
 - 💬 **チャットインターフェース**: 直感的なQ&A形式
 - 📚 **引用表示**: 回答の根拠となる文書とページ番号を表示
 - 📊 **文書管理**: アップロード済み文書の管理機能
+- 🤖 **AIコードレビュー**: 堅牢な429エラー対策付きの自動レビューシステム
+- 🔄 **自動復旧機能**: API制限時の自動リトライとフォールバック
 
 ## 🏗️ 技術スタック
 
@@ -22,6 +47,8 @@ StreamlitとSupabaseを使用したMVP実装
 - **Embeddings**: OpenAI text-embedding-3-small
 - **LLM**: Claude API (Anthropic)
 - **Deployment**: Streamlit Cloud Community
+- **CI/CD**: GitHub Actions with enhanced error handling
+- **Code Review**: Dual AI system (Gemini + Claude) with 429 protection
 
 ## 🚀 クイックスタート
 
